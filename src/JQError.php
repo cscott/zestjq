@@ -10,14 +10,20 @@ namespace Wikimedia\Zest;
  * thrown with a string (e.g. `"msg" | error`), $jqValue is that string. For
  * errors thrown with a non-string value (e.g. `[1,2] | error`), $jqValue is
  * the original array/object/number so that catch handlers receive it intact.
- * For internal type-error strings, $jqValue is set to the message string.
+ * For internal type-error strings thrown without an explicit value,
+ * $jqValue falls back to the message string.
+ *
+ * A variadic second parameter is used instead of a nullable default so that
+ * an explicit null (e.g. `null | error`) is preserved as null rather than
+ * being coerced to the message string by the ?? operator.
  */
 class JQError extends \RuntimeException {
 
 	public readonly mixed $jqValue;
 
-	public function __construct( string $message, mixed $jqValue = null ) {
+	public function __construct( string $message, mixed ...$jqValue ) {
 		parent::__construct( $message );
-		$this->jqValue = $jqValue ?? $message;
+		// count() > 0 distinguishes "no value given" from "value is null"
+		$this->jqValue = count( $jqValue ) > 0 ? $jqValue[0] : $message;
 	}
 }
