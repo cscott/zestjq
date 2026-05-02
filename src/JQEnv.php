@@ -16,6 +16,8 @@ use Generator;
  */
 class JQEnv {
 
+	private static ?JQEnv $stdEnv = null;
+
 	/**
 	 * @param ?JQEnv $parent Parent binding
 	 * @param IOContext $io Shared I/O context (same object across all derived envs)
@@ -62,5 +64,55 @@ class JQEnv {
 			$this->defs[$key] = $this->parent?->lookup( $name, $arity );
 		}
 		return $this->defs[$key];
+	}
+
+	/**
+	 * Return the shared standard-library environment, building it on first call.
+	 *
+	 * The env is built by evaluating src/builtin.jq with $__env__ appended so
+	 * that all def statements register themselves and the resulting JQEnv is
+	 * returned. The env is then cached for the lifetime of the process.
+	 */
+	public static function getStdEnv(): JQEnv {
+		self::$stdEnv ??= self::buildStandardEnv();
+		return self::$stdEnv;
+	}
+
+	/**
+	 * Evaluate a JQ source string with $__env__ appended against a base
+	 * environment and return the JQEnv captured by $__env__.
+	 *
+	 * This is the mechanism used to bootstrap the standard library: each def
+	 * in the source registers a function in the env without executing its body,
+	 * so the resulting env has all defs available regardless of whether the
+	 * bodies reference yet-to-be-implemented built-ins.
+	 *
+	 * @param string $jqSrc JQ source ending just before a final expression
+	 * @param ?JQEnv $baseEnv Starting environment (null → empty env)
+	 * @return JQEnv The environment captured after all defs have been registered
+	 */
+	public static function evalForEnv( string $jqSrc, ?JQEnv $baseEnv = null ): JQEnv {
+		$baseEnv ??= new JQEnv( null, new IOContext );
+		$g = new JQGrammar;
+		try {
+			$ast = $g->parse( $jqSrc . "\n\$__env__" );
+		} catch ( \Wikimedia\WikiPEG\SyntaxError $e ) {
+			throw new \RuntimeException( 'Failed to parse JQ source for evalForEnv: ' . json_encode( $e ) );
+		}
+		$f = JQCompile::compile( $ast, $baseEnv );
+		foreach ( $f( null ) as $val ) {
+			if ( $val instanceof JQEnv ) {
+				return $val;
+			}
+		}
+		throw new \RuntimeException( 'evalForEnv: $__env__ was not yielded' );
+	}
+
+	private static function buildStandardEnv(): JQEnv {
+		$src = file_get_contents( __DIR__ . '/builtin.jq' );
+		if ( $src === false ) {
+			throw new \RuntimeException( 'Could not read builtin.jq' );
+		}
+		return self::evalForEnv( $src );
 	}
 }

@@ -87,7 +87,10 @@ class JQCompile {
 			'neg'      => $this->compileNeg( $node ),
 			'field'    => $this->compileField( $node ),
 			'index'    => $this->compileIndex( $node ),
-			default    => throw new \LogicException( 'compileNode: not yet implemented for node type: ' . $node['type'] ),
+			default    => static function ( mixed $input, JQEnv $env ) use ( $node ): Generator {
+				yield from [];
+				throw new \LogicException( 'compileNode: not yet implemented for node type: ' . $node['type'] );
+			},
 		};
 	}
 
@@ -190,6 +193,14 @@ class JQCompile {
 	 */
 	private function compileVariable( array $node ): Closure {
 		$key = '$' . $node['name'];
+		if ( $key === '$__env__' ) {
+			// Built-in: yield the current JQEnv so callers can capture it.
+			// Used by bootstrapping code (evalForEnv) to extract the env after
+			// a sequence of def statements has been evaluated.
+			return static function ( mixed $input, JQEnv $env ): Generator {
+				yield $env;
+			};
+		}
 		return static function ( mixed $input, JQEnv $env ) use ( $key ): Generator {
 			$fn = $env->lookup( $key, 0 );
 			if ( $fn === null ) {
@@ -545,13 +556,15 @@ class JQCompile {
 	private static function jqCompare( mixed $a, mixed $b ): int {
 		static $order = null;
 		$order ??= static function ( mixed $v ): int {
-			if ( $v === null ) return 0;
-			if ( $v === false ) return 1;
-			if ( $v === true ) return 2;
-			if ( is_int( $v ) || is_float( $v ) ) return 3;
-			if ( is_string( $v ) ) return 4;
-			if ( is_array( $v ) ) return 5;
-			return 6;  // stdClass object
+			return match ( true ) {
+				( $v === null ) => 0,
+				( $v === false ) => 1,
+				( $v === true ) => 2,
+				( is_int( $v ) || is_float( $v ) ) => 3,
+				is_string( $v ) => 4,
+				is_array( $v ) => 5,
+				default => 6, // stdClass object
+			};
 		};
 		$ta = $order( $a );
 		$tb = $order( $b );

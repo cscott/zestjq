@@ -224,7 +224,7 @@ Suffix
     { return [ 'type' => 'index', 'key' => $name, 'opt' => $opt ]; }
 
 /* An optional expression used as a slice bound; null if absent. */
-SliceBound = @Alt?
+SliceBound = @Query?
 
 /* Optional question mark (which suppresses match errors) */
 OptQ = _ "?" { return true; } / "" { return false; }

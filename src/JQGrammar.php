@@ -7802,11 +7802,11 @@ private function parseSliceBound($silence) {
     $this->currPos = $p2;
   } else {
     $r3 = self::$FAILED;
-    if (!$silence) { $this->fail(13); }
+    if (!$silence) { $this->fail(1); }
     $r1 = self::$FAILED;
     goto seq_1;
   }
-  $r1 = $this->parseAlt($silence);
+  $r1 = $this->parsePipe($silence);
   if ($r1===self::$FAILED) {
     $this->currPos = $p2;
     $r1 = self::$FAILED;
