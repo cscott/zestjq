@@ -392,6 +392,8 @@ class JQCompile {
 			$node['pairs']
 		);
 		return static function ( mixed $input, JQEnv $env ) use ( $pairFns ): Generator {
+			// Create the objects as associative arrays in order to
+			// benefit from copy-on-write value semantics
 			$objects = [ [] ];
 			foreach ( $pairFns as [ $keyFn, $valFn ] ) {
 				$next = [];
@@ -399,6 +401,9 @@ class JQCompile {
 					foreach ( $keyFn( $input, $env ) as $key ) {
 						foreach ( $valFn( $input, $env ) as $val ) {
 							$newObj = $obj;
+							if ( !( is_string( $key ) || is_numeric( $key ) ) ) {
+								throw new JQError( "Cannot use " . self::typeName( $key ) . " as object key" );
+							}
 							$newObj[(string)$key] = $val;
 							$next[] = $newObj;
 						}
@@ -406,7 +411,10 @@ class JQCompile {
 				}
 				$objects = $next;
 			}
-			yield from $objects;
+			foreach ( $objects as $obj ) {
+				// Convert constructed arrays into objects
+				yield (object)$obj;
+			}
 		};
 	}
 
@@ -528,25 +536,15 @@ class JQCompile {
 	 * Return the JQ type name of a PHP value, used in error messages.
 	 */
 	public static function typeName( mixed $v ): string {
-		if ( $v === null ) {
-			return 'null';
-		}
-		if ( is_bool( $v ) ) {
-			return 'boolean';
-		}
-		if ( is_int( $v ) || is_float( $v ) ) {
-			return 'number';
-		}
-		if ( is_string( $v ) ) {
-			return 'string';
-		}
-		if ( is_object( $v ) ) {
-			return 'object';
-		}
-		if ( is_array( $v ) ) {
-			return 'array';
-		}
-		return 'unknown';
+		return match ( true ) {
+			( $v === null ) => 'null',
+			is_bool( $v ) => 'boolean',
+			is_int( $v ) || is_float( $v ) => 'number',
+			is_string( $v ) => 'string',
+			is_object( $v ) => 'object',
+			is_array( $v ) => 'array',
+			default => 'unknown',
+		};
 	}
 
 	/**
@@ -631,7 +629,7 @@ class JQCompile {
 	 * string(4) < array(5) < object(6).
 	 * Returns negative, zero, or positive like the spaceship operator.
 	 */
-	private static function jqCompare( mixed $a, mixed $b ): int {
+	public static function jqCompare( mixed $a, mixed $b ): int {
 		static $order = null;
 		$order ??= static function ( mixed $v ): int {
 			return match ( true ) {

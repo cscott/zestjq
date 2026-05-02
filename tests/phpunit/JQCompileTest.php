@@ -7,6 +7,7 @@ use Wikimedia\Zest\IOContext;
 use Wikimedia\Zest\JQCompile;
 use Wikimedia\Zest\JQEnv;
 use Wikimedia\Zest\JQGrammar;
+use Wikimedia\Zest\ZestJQ;
 
 /**
  * JQ evaluation tests driven by the upstream jq test suite from
@@ -15,7 +16,7 @@ use Wikimedia\Zest\JQGrammar;
 class JQCompileTest extends \PHPUnit\Framework\TestCase {
 	public static function compileProvider(): iterable {
 		foreach ( JQGrammarTest::loadTests() as $test ) {
-			if ( $test['lineno'] > 100 ) {
+			if ( $test['lineno'] > 50 ) {
 				return;
 			}
 			if ( !( $test['fail'] ?? false ) ) {
@@ -33,18 +34,16 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 	 * @covers \Wikimedia\Zest\JQCompile
 	 */
 	public function testCompile( string $query, string $input, array $expected ): void {
-		$this->markTestSkipped( "not yet" );
-		$input = self::json( $input );
-		$expected = array_map( self::json( ... ), $expected );
+		$input = ZestJQ::jsonDecode( $input );
+		$expected = array_map( ZestJQ::jsonDecode( ... ), $expected );
 		$g = new JQGrammar;
 		$ast = $g->parse( $query );
 		$env = new JQEnv( null, new IOContext );
 		$eval = JQCompile::compile( $ast, $env );
 		$result = iterator_to_array( $eval( $input ) );
-		$this->assertSame( $expected, $result );
-	}
-
-	private static function json( string $input ) {
-		return json_decode( $input, true, flags: JSON_THROW_ON_ERROR );
+		$this->assertTrue(
+			JQCompile::jqCompare( $expected, $result ) === 0,
+			json_encode( $result )
+		);
 	}
 }

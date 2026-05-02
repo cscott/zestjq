@@ -91,8 +91,9 @@ if ( $astOutput ) {
 			$exitCode = 2;
 			continue;
 		}
-		$input = json_decode( $raw, false );
-		if ( $input === null && trim( $raw ) !== 'null' ) {
+		try {
+			$input = ZestJQ::jsonDecode( $raw );
+		} catch (\JsonException) {
 			fwrite( STDERR, "zestjq: invalid JSON in file: $file\n" );
 			$exitCode = 2;
 			continue;
@@ -105,8 +106,9 @@ if ( $astOutput ) {
 		fwrite( STDERR, "zestjq: no input\n" );
 		exit( 2 );
 	}
-	$input = json_decode( $raw, false );
-	if ( $input === null && trim( $raw ) !== 'null' ) {
+	try {
+		$input = ZestJQ::jsonDecode( $raw, false );
+	} catch (JsonException) {
 		fwrite( STDERR, "zestjq: invalid JSON in stdin\n" );
 		exit( 2 );
 	}
