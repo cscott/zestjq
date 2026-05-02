@@ -115,12 +115,11 @@ class JQEnv {
 
 	private static function buildStandardEnv(): JQEnv {
 		$baseEnv = new JQEnv( null, new IOContext );
-		$astFile = __DIR__ . '/BuiltinJQAst.php';
-		if ( is_file( $astFile ) ) {
-			// Fast path: load the pre-parsed AST; skip the grammar parse step.
-			return self::runAstForEnv( require $astFile, $baseEnv );
+		// Fast path: use the pre-parsed AST constant (available after composer build-stdenv).
+		if ( class_exists( JQBuiltin::class ) ) {
+			return self::runAstForEnv( JQBuiltin::AST, $baseEnv );
 		}
-		// Slow fallback: parse builtin.jq from source.
+		// Slow fallback: parse builtin.jq from source if JQBuiltin.php hasn't been generated.
 		$src = file_get_contents( __DIR__ . '/builtin.jq' );
 		if ( $src === false ) {
 			throw new \RuntimeException( 'Could not read builtin.jq' );
