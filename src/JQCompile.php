@@ -66,6 +66,7 @@ class JQCompile {
 			'pipe'     => $this->evalPipe( $node ),
 			'label'    => $this->evalLabel( $node ),
 			'break'    => $this->evalBreak( $node ),
+			'bind'     => $this->evalBind( $node ),
 			'field'    => $this->evalField( $node ),
 			'index'    => $this->evalIndex( $node ),
 			default    => throw new \LogicException( 'evalNode: not yet implemented for node type: ' . $node['type'] ),
@@ -158,6 +159,104 @@ class JQCompile {
 			yield from [];
 			throw new JQBreak( $name );
 		};
+	}
+
+	/**
+	 * Compile a bind node (expr as $pat | body).
+	 *
+	 * For each output of expr, match it against the pattern and evaluate
+	 * body in the extended environment. Two important points:
+	 *
+	 * - Body receives the original $input, not the bound value. This is
+	 *   what distinguishes "as" from a pipe: . stays the same in body.
+	 * - $innerEnv flows only into body, never outward. Bindings introduced
+	 *   here are invisible outside the body, giving correct lexical scoping.
+	 *
+	 * @param array $node  Node with 'expr', 'pattern', and 'body' keys
+	 * @return \Closure(mixed $input, JQEnv $env): \Generator
+	 */
+	private function evalBind( array $node ): \Closure {
+		$srcFn  = $this->evalNode( $node['expr'] );
+		$bodyFn = $this->evalNode( $node['body'] );
+		$pat    = $node['pattern'];
+		return static function ( mixed $input, JQEnv $env ) use ( $srcFn, $bodyFn, $pat ): \Generator {
+			foreach ( $srcFn( $input, $env ) as $val ) {
+				foreach ( self::matchPattern( $pat, $val, $env ) as $innerEnv ) {
+					yield from $bodyFn( $input, $innerEnv );
+				}
+			}
+		};
+	}
+
+	/**
+	 * Match a value against a pattern, yielding an extended JQEnv on success.
+	 *
+	 * Type mismatches throw JQError so that alt_pattern (?//) can catch and
+	 * try the next alternative. A var_pattern always succeeds.
+	 *
+	 * @return \Generator<JQEnv>
+	 */
+	private static function matchPattern( array $pat, mixed $val, JQEnv $env ): \Generator {
+		if ( $pat['type'] === 'var_pattern' ) {
+			$name = $pat['name'];
+			yield $env->bind( $name, 0,
+				static function ( mixed $input, JQEnv $e ) use ( $val ): \Generator {
+					yield $val;
+				}
+			);
+		} elseif ( $pat['type'] === 'array_pattern' ) {
+			if ( !is_array( $val ) || !array_is_list( $val ) ) {
+				throw new JQError( 'Cannot destructure ' . self::typeName( $val ) . ' as array' );
+			}
+			$currentEnv = $env;
+			foreach ( $pat['elems'] as $i => $elemPat ) {
+				$nextEnv = null;
+				foreach ( self::matchPattern( $elemPat, $val[$i] ?? null, $currentEnv ) as $e ) {
+					$nextEnv = $e;
+					break;
+				}
+				if ( $nextEnv === null ) {
+					return;
+				}
+				$currentEnv = $nextEnv;
+			}
+			yield $currentEnv;
+		} elseif ( $pat['type'] === 'obj_pattern' ) {
+			if ( !is_array( $val ) || array_is_list( $val ) ) {
+				throw new JQError( 'Cannot destructure ' . self::typeName( $val ) . ' as object' );
+			}
+			$currentEnv = $env;
+			foreach ( $pat['fields'] as $field ) {
+				$keyNode = $field['key'];
+				if ( $keyNode['type'] !== 'literal' || !is_string( $keyNode['value'] ) ) {
+					throw new JQError( 'Computed keys in object patterns are not yet supported' );
+				}
+				$nextEnv = null;
+				foreach ( self::matchPattern( $field['pattern'], $val[$keyNode['value']] ?? null, $currentEnv ) as $e ) {
+					$nextEnv = $e;
+					break;
+				}
+				if ( $nextEnv === null ) {
+					return;
+				}
+				$currentEnv = $nextEnv;
+			}
+			yield $currentEnv;
+		} elseif ( $pat['type'] === 'alt_pattern' ) {
+			foreach ( $pat['patterns'] as $altPat ) {
+				try {
+					foreach ( self::matchPattern( $altPat, $val, $env ) as $nextEnv ) {
+						yield $nextEnv;
+						return;
+					}
+				} catch ( JQError ) {
+					// this alternative failed; try the next one
+				}
+			}
+			// all alternatives failed — yield nothing
+		} else {
+			throw new \LogicException( 'Unknown pattern type: ' . $pat['type'] );
+		}
 	}
 
 	/**
