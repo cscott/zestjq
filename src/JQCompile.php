@@ -91,6 +91,15 @@ class JQCompile {
 			'array'    => $this->compileArray( $node ),
 			'object'   => $this->compileObject( $node ),
 			'if'       => $this->compileIf( $node ),
+			'string'   => $this->compileString( $node ),
+			'format'   => $this->compileFormat( $node ),
+			'binop'    => $this->compileBinop( $node ),
+			'alternative' => $this->compileAlternative( $node ),
+			'try'      => $this->compileTryCatch( $node ),
+			'reduce'   => $this->compileReduce( $node ),
+			'foreach'  => $this->compileForeach( $node ),
+			'recurse'  => $this->compileCall( [ 'name' => 'recurse', 'args' => [] ] ),
+			'slice'    => $this->compileSlice( $node ),
 			default    => static function ( mixed $input, JQEnv $env ) use ( $node ): Generator {
 				yield from [];
 				throw new \LogicException( 'compileNode: not yet implemented for node type: ' . $node['type'] );
@@ -724,7 +733,7 @@ class JQCompile {
 					} elseif ( is_array( $base ) ) {
 						yield from $base;
 					} else {
-						throw new JQError( self::typeName( $base ) . ' is not iterable' );
+						throw new JQError( 'Cannot iterate over ' . self::typeName( $base ) . ' (' . self::jqValueToString( $base ) . ')' );
 					}
 				} catch ( JQError $e ) {
 					if ( !$opt ) {
@@ -772,19 +781,11 @@ class JQCompile {
 					if ( $base === null ) {
 						yield null;
 					} elseif ( is_object( $base ) ) {
-						if ( property_exists( $base, $name ) ) {
-							yield $base->$name;
-						} elseif ( !$opt ) {
-							yield null;
-						}
-						// opt + absent key: yield nothing (suppresses downstream chain)
+						// Absent key on object always yields null; ? only suppresses type errors.
+						yield property_exists( $base, $name ) ? $base->$name : null;
 					} elseif ( is_array( $base ) && !array_is_list( $base ) ) {
 						// Associative PHP array (defensive; normally objects are stdClass)
-						if ( array_key_exists( $name, $base ) ) {
-							yield $base[$name];
-						} elseif ( !$opt ) {
-							yield null;
-						}
+						yield array_key_exists( $name, $base ) ? $base[$name] : null;
 					} else {
 						throw new JQError(
 							'Cannot index ' . self::typeName( $base ) . ' with string "' . $name . '"'
@@ -809,7 +810,7 @@ class JQCompile {
 	 * @return Closure(mixed,JQEnv):Generator a Filter
 	 */
 	private function compileIndex( array $node ): Closure {
-		$exprFn = $this->compileNode( $node['expr'] );
+		$exprFn = isset( $node['expr'] ) ? $this->compileNode( $node['expr'] ) : $this->compileIdentity();
 		$keyFn  = $this->compileNode( $node['key'] );
 		$opt    = $node['opt'];
 		return static function ( mixed $input, JQEnv $env ) use ( $exprFn, $keyFn, $opt ): Generator {
@@ -866,6 +867,482 @@ class JQCompile {
 				}
 			}
 		};
+	}
+
+	/**
+	 * Compile a string node ("text\(expr)text...").
+	 *
+	 * Parts alternate between str_text (literal text) and str_interp
+	 * (expression to evaluate and interpolate). All combinations of
+	 * interpolated outputs are produced via Cartesian product.
+	 *
+	 * If fmt is set (@html, @base64, …), each interpolated segment is
+	 * formatted before being inserted; literal text parts are left as-is.
+	 * If fmt is null, interpolated values are converted with tostring
+	 * semantics (strings pass through; everything else is JSON-encoded).
+	 *
+	 * @param array $node Node with 'fmt' (null or format name) and 'parts' keys
+	 * @return Closure(mixed,JQEnv):Generator a Filter
+	 */
+	private function compileString( array $node ): Closure {
+		$fmt = $node['fmt'];
+		$compiledParts = [];
+		foreach ( $node['parts'] as $part ) {
+			if ( $part['type'] === 'str_interp' ) {
+				$compiledParts[] = [ 'interp', $this->compileNode( $part['expr'] ) ];
+			} else {
+				$compiledParts[] = [ 'text', $part['text'] ];
+			}
+		}
+		return static function ( mixed $input, JQEnv $env ) use ( $fmt, $compiledParts ): Generator {
+			$strings = [ '' ];
+			foreach ( $compiledParts as [ $kind, $data ] ) {
+				if ( $kind === 'text' ) {
+					$strings = array_map( static fn ( $s ) => $s . $data, $strings );
+				} else {
+					$next = [];
+					foreach ( $strings as $prefix ) {
+						foreach ( $data( $input, $env ) as $val ) {
+							$seg = $fmt !== null
+								? self::applyFormat( $fmt, $val )
+								: self::jqValueToString( $val );
+							$next[] = $prefix . $seg;
+						}
+					}
+					$strings = $next;
+				}
+			}
+			yield from $strings;
+		};
+	}
+
+	/**
+	 * Compile a standalone format node (@base64, @html, etc.).
+	 * Applies the named format to the input value directly.
+	 *
+	 * @param array $node Node with 'fmt' key
+	 * @return Closure(mixed,JQEnv):Generator a Filter
+	 */
+	private function compileFormat( array $node ): Closure {
+		$fmt = $node['fmt'];
+		return static function ( mixed $input, JQEnv $env ) use ( $fmt ): Generator {
+			yield self::applyFormat( $fmt, $input );
+		};
+	}
+
+	/**
+	 * Apply a named format (@html, @base64, etc.) to a value.
+	 * Non-string values are first converted with jqValueToString(), except
+	 * the json format which always JSON-encodes its input (including strings).
+	 */
+	private static function applyFormat( string $fmt, mixed $val ): string {
+		$str = self::jqValueToString( $val );
+		return match ( $fmt ) {
+			'text'    => $str,
+			'json'    => json_encode( $val, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) ?: 'null',
+			'html'    => htmlspecialchars( $str, ENT_QUOTES | ENT_XML1, 'UTF-8' ),
+			'uri'     => rawurlencode( $str ),
+			'urid'    => rawurldecode( $str ),
+			'base64'  => base64_encode( $str ),
+			'base64d' => (string)base64_decode( trim( $str ) ),
+			'sh'      => "'" . str_replace( "'", "'\\''", $str ) . "'",
+			'csv'     => self::formatCsv( $val ),
+			'tsv'     => self::formatTsv( $val ),
+			default   => throw new JQError( 'Unknown format: @' . $fmt ),
+		};
+	}
+
+	/**
+	 * Convert a JQ value to string with tostring semantics:
+	 * strings pass through unchanged; everything else is JSON-encoded.
+	 */
+	private static function jqValueToString( mixed $val ): string {
+		return is_string( $val )
+			? $val
+			: ( json_encode( $val, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) ?: 'null' );
+	}
+
+	/**
+	 * Format an array as CSV: numbers are bare, strings are double-quoted
+	 * with internal double-quotes doubled; values are comma-separated.
+	 */
+	private static function formatCsv( mixed $val ): string {
+		if ( !is_array( $val ) || !array_is_list( $val ) ) {
+			throw new JQError( '@csv input must be an array, got ' . self::typeName( $val ) );
+		}
+		$cols = [];
+		foreach ( $val as $item ) {
+			if ( is_int( $item ) || is_float( $item ) ) {
+				$cols[] = json_encode( $item ) ?: '0';
+			} elseif ( is_string( $item ) ) {
+				$cols[] = '"' . str_replace( '"', '""', $item ) . '"';
+			} elseif ( $item === true ) {
+				$cols[] = 'true';
+			} elseif ( $item === false ) {
+				$cols[] = 'false';
+			} elseif ( $item === null ) {
+				$cols[] = '';
+			} else {
+				throw new JQError( '@csv: invalid element type ' . self::typeName( $item ) );
+			}
+		}
+		return implode( ',', $cols );
+	}
+
+	/**
+	 * Format an array as TSV: values are tab-separated; tab, newline,
+	 * carriage-return, and backslash in strings are backslash-escaped.
+	 */
+	private static function formatTsv( mixed $val ): string {
+		if ( !is_array( $val ) || !array_is_list( $val ) ) {
+			throw new JQError( '@tsv input must be an array, got ' . self::typeName( $val ) );
+		}
+		$cols = [];
+		foreach ( $val as $item ) {
+			if ( is_int( $item ) || is_float( $item ) ) {
+				$cols[] = json_encode( $item ) ?: '0';
+			} elseif ( is_string( $item ) ) {
+				$cols[] = str_replace(
+					[ '\\', "\t", "\n", "\r" ],
+					[ '\\\\', '\\t', '\\n', '\\r' ],
+					$item
+				);
+			} elseif ( $item === true ) {
+				$cols[] = 'true';
+			} elseif ( $item === false ) {
+				$cols[] = 'false';
+			} elseif ( $item === null ) {
+				$cols[] = '';
+			} else {
+				throw new JQError( '@tsv: invalid element type ' . self::typeName( $item ) );
+			}
+		}
+		return implode( "\t", $cols );
+	}
+
+	/**
+	 * Compile a binary operation node (left op right).
+	 * Evaluates both sides against the original input, then applies the
+	 * operator to each combination of outputs.
+	 *
+	 * @param array $node Node with 'op', 'left', and 'right' keys
+	 * @return Closure(mixed,JQEnv):Generator a Filter
+	 */
+	private function compileBinop( array $node ): Closure {
+		$leftFn  = $this->compileNode( $node['left'] );
+		$rightFn = $this->compileNode( $node['right'] );
+		$op      = $node['op'];
+		return static function ( mixed $input, JQEnv $env ) use ( $leftFn, $rightFn, $op ): Generator {
+			foreach ( $leftFn( $input, $env ) as $lv ) {
+				foreach ( $rightFn( $input, $env ) as $rv ) {
+					yield self::jqBinop( $op, $lv, $rv );
+				}
+			}
+		};
+	}
+
+	private static function jqBinop( string $op, mixed $a, mixed $b ): mixed {
+		return match ( $op ) {
+			'+' => self::jqAdd( $a, $b ),
+			'-' => self::jqSubtract( $a, $b ),
+			'*' => self::jqMultiply( $a, $b ),
+			'/' => self::jqDivide( $a, $b ),
+			'%' => self::jqModulo( $a, $b ),
+			default => throw new JQError( 'Unknown operator: ' . $op ),
+		};
+	}
+
+	/**
+	 * JQ addition: null acts as identity; numbers add; strings concatenate;
+	 * arrays concatenate; objects merge (right keys overwrite left).
+	 */
+	private static function jqAdd( mixed $a, mixed $b ): mixed {
+		if ( $a === null ) {
+			return $b;
+		}
+		if ( $b === null ) {
+			return $a;
+		}
+		if ( ( is_int( $a ) || is_float( $a ) ) && ( is_int( $b ) || is_float( $b ) ) ) {
+			return $a + $b;
+		}
+		if ( is_string( $a ) && is_string( $b ) ) {
+			return $a . $b;
+		}
+		if ( is_array( $a ) && is_array( $b ) ) {
+			return array_merge( $a, $b );
+		}
+		if ( is_object( $a ) && is_object( $b ) ) {
+			return (object)array_merge( get_object_vars( $a ), get_object_vars( $b ) );
+		}
+		throw new JQError( self::typeName( $a ) . ' and ' . self::typeName( $b ) . ' cannot be added' );
+	}
+
+	/**
+	 * JQ subtraction: numbers subtract; arrays remove matching elements.
+	 */
+	private static function jqSubtract( mixed $a, mixed $b ): mixed {
+		if ( ( is_int( $a ) || is_float( $a ) ) && ( is_int( $b ) || is_float( $b ) ) ) {
+			return $a - $b;
+		}
+		if ( is_array( $a ) && is_array( $b ) ) {
+			return array_values( array_filter( $a,
+				static function ( $item ) use ( $b ): bool {
+					foreach ( $b as $bItem ) {
+						if ( self::jqEqual( $item, $bItem ) ) {
+							return false;
+						}
+					}
+					return true;
+				}
+			) );
+		}
+		throw new JQError( self::typeName( $a ) . ' and ' . self::typeName( $b ) . ' cannot be subtracted' );
+	}
+
+	/**
+	 * JQ multiplication: numbers multiply; string * number repeats string;
+	 * null * anything = null; objects are recursively merged.
+	 */
+	private static function jqMultiply( mixed $a, mixed $b ): mixed {
+		if ( $a === null || $b === null ) {
+			return null;
+		}
+		if ( ( is_int( $a ) || is_float( $a ) ) && ( is_int( $b ) || is_float( $b ) ) ) {
+			return $a * $b;
+		}
+		if ( is_string( $a ) && ( is_int( $b ) || is_float( $b ) ) ) {
+			return $b <= 0 ? null : str_repeat( $a, (int)$b );
+		}
+		if ( ( is_int( $a ) || is_float( $a ) ) && is_string( $b ) ) {
+			return $a <= 0 ? null : str_repeat( $b, (int)$a );
+		}
+		if ( is_object( $a ) && is_object( $b ) ) {
+			return self::jqMergeObjects( $a, $b );
+		}
+		throw new JQError( self::typeName( $a ) . ' and ' . self::typeName( $b ) . ' cannot be multiplied' );
+	}
+
+	/** Recursive object merge: values in $b overwrite $a, nested objects are merged. */
+	private static function jqMergeObjects( object $a, object $b ): object {
+		$result = get_object_vars( $a );
+		foreach ( get_object_vars( $b ) as $k => $bVal ) {
+			if ( isset( $result[$k] ) && is_object( $result[$k] ) && is_object( $bVal ) ) {
+				$result[$k] = self::jqMergeObjects( $result[$k], $bVal );
+			} else {
+				$result[$k] = $bVal;
+			}
+		}
+		return (object)$result;
+	}
+
+	/**
+	 * JQ division: numbers divide (zero divisor throws); strings split.
+	 */
+	private static function jqDivide( mixed $a, mixed $b ): mixed {
+		if ( ( is_int( $a ) || is_float( $a ) ) && ( is_int( $b ) || is_float( $b ) ) ) {
+			if ( $b == 0 ) {
+				throw new JQError( 'number (' . $a . ') and number (' . $b . ') cannot be divided because the divisor is zero' );
+			}
+			return $a / $b;
+		}
+		if ( is_string( $a ) && is_string( $b ) ) {
+			return $b === '' ? mb_str_split( $a ) : explode( $b, $a );
+		}
+		throw new JQError( self::typeName( $a ) . ' and ' . self::typeName( $b ) . ' cannot be divided' );
+	}
+
+	/**
+	 * JQ modulo: integer remainder (zero divisor throws).
+	 */
+	private static function jqModulo( mixed $a, mixed $b ): mixed {
+		if ( ( is_int( $a ) || is_float( $a ) ) && ( is_int( $b ) || is_float( $b ) ) ) {
+			if ( $b == 0 ) {
+				throw new JQError( 'number (' . $a . ') modulo zero' );
+			}
+			return fmod( (float)$a, (float)$b );
+		}
+		throw new JQError( self::typeName( $a ) . ' and ' . self::typeName( $b ) . ' cannot have remainder computed' );
+	}
+
+	/**
+	 * Compile an alternative node (left // right).
+	 * Evaluates left; yields all non-false/non-null outputs. If none were
+	 * yielded, evaluates right and yields all its outputs instead.
+	 *
+	 * @param array $node Node with 'left' and 'right' keys
+	 * @return Closure(mixed,JQEnv):Generator a Filter
+	 */
+	private function compileAlternative( array $node ): Closure {
+		$leftFn  = $this->compileNode( $node['left'] );
+		$rightFn = $this->compileNode( $node['right'] );
+		return static function ( mixed $input, JQEnv $env ) use ( $leftFn, $rightFn ): Generator {
+			$found = false;
+			foreach ( $leftFn( $input, $env ) as $val ) {
+				if ( $val !== null && $val !== false ) {
+					yield $val;
+					$found = true;
+				}
+			}
+			if ( !$found ) {
+				yield from $rightFn( $input, $env );
+			}
+		};
+	}
+
+	/**
+	 * Compile a try node (try body catch handler).
+	 * Evaluates body; if a JQError is thrown, catches it and either
+	 * evaluates handler with the error message as input, or produces no
+	 * output if there is no catch clause.
+	 *
+	 * @param array $node Node with 'body' and nullable 'catch' keys
+	 * @return Closure(mixed,JQEnv):Generator a Filter
+	 */
+	private function compileTryCatch( array $node ): Closure {
+		$bodyFn  = $this->compileNode( $node['body'] );
+		$catchFn = $node['catch'] !== null ? $this->compileNode( $node['catch'] ) : null;
+		return static function ( mixed $input, JQEnv $env ) use ( $bodyFn, $catchFn ): Generator {
+			try {
+				yield from $bodyFn( $input, $env );
+			} catch ( JQError $e ) {
+				if ( $catchFn !== null ) {
+					yield from $catchFn( $e->jqValue, $env );
+				}
+			}
+		};
+	}
+
+	/**
+	 * Compile a reduce node (reduce src as $pat (init; update)).
+	 * Iterates over all outputs of src; for each output, matches the pattern
+	 * and evaluates update with the current accumulator as input in the
+	 * extended env. Yields the final accumulator value.
+	 *
+	 * @param array $node Node with 'src', 'pattern', 'init', and 'update' keys
+	 * @return Closure(mixed,JQEnv):Generator a Filter
+	 */
+	private function compileReduce( array $node ): Closure {
+		$srcFn    = $this->compileNode( $node['src'] );
+		$initFn   = $this->compileNode( $node['init'] );
+		$updateFn = $this->compileNode( $node['update'] );
+		$patFn    = $this->compilePattern( $node['pattern'] );
+		return static function ( mixed $input, JQEnv $env ) use ( $srcFn, $initFn, $updateFn, $patFn ): Generator {
+			$acc = null;
+			foreach ( $initFn( $input, $env ) as $initVal ) {
+				$acc = $initVal;
+				break;
+			}
+			foreach ( $srcFn( $input, $env ) as $val ) {
+				foreach ( $patFn( $val, $env ) as $boundEnv ) {
+					foreach ( $updateFn( $acc, $boundEnv ) as $newAcc ) {
+						$acc = $newAcc;
+						break;
+					}
+					break;
+				}
+			}
+			yield $acc;
+		};
+	}
+
+	/**
+	 * Compile a foreach node (foreach src as $pat (init; update) or
+	 * foreach src as $pat (init; update; extract)).
+	 * Like reduce but yields the accumulator (or extract output) after each step.
+	 *
+	 * @param array $node Node with 'src', 'pattern', 'init', 'update', and nullable 'extract' keys
+	 * @return Closure(mixed,JQEnv):Generator a Filter
+	 */
+	private function compileForeach( array $node ): Closure {
+		$srcFn     = $this->compileNode( $node['src'] );
+		$initFn    = $this->compileNode( $node['init'] );
+		$updateFn  = $this->compileNode( $node['update'] );
+		$patFn     = $this->compilePattern( $node['pattern'] );
+		$extractFn = $node['extract'] !== null ? $this->compileNode( $node['extract'] ) : null;
+		return static function ( mixed $input, JQEnv $env ) use ( $srcFn, $initFn, $updateFn, $patFn, $extractFn ): Generator {
+			$acc = null;
+			foreach ( $initFn( $input, $env ) as $initVal ) {
+				$acc = $initVal;
+				break;
+			}
+			foreach ( $srcFn( $input, $env ) as $val ) {
+				foreach ( $patFn( $val, $env ) as $boundEnv ) {
+					foreach ( $updateFn( $acc, $boundEnv ) as $newAcc ) {
+						$acc = $newAcc;
+						break;
+					}
+					break;
+				}
+				if ( $extractFn !== null ) {
+					yield from $extractFn( $acc, $env );
+				} else {
+					yield $acc;
+				}
+			}
+		};
+	}
+
+	/**
+	 * Compile a slice node (expr[from:to] or expr[from:to]?).
+	 * Applies to arrays (returns subarray) and strings (returns substring).
+	 * Null input yields null; other types throw JQError (suppressed when opt).
+	 *
+	 * @param array $node Node with 'expr', 'from', 'to', and 'opt' keys
+	 * @return Closure(mixed,JQEnv):Generator a Filter
+	 */
+	private function compileSlice( array $node ): Closure {
+		$exprFn = $this->compileNode( $node['expr'] );
+		$fromFn = $node['from'] !== null ? $this->compileNode( $node['from'] ) : null;
+		$toFn   = $node['to'] !== null ? $this->compileNode( $node['to'] ) : null;
+		$opt    = $node['opt'];
+		return static function ( mixed $input, JQEnv $env ) use ( $exprFn, $fromFn, $toFn, $opt ): Generator {
+			foreach ( $exprFn( $input, $env ) as $base ) {
+				$fromVals = $fromFn !== null ? iterator_to_array( $fromFn( $input, $env ), false ) : [ null ];
+				$toVals   = $toFn !== null ? iterator_to_array( $toFn( $input, $env ), false ) : [ null ];
+				foreach ( $fromVals as $from ) {
+					foreach ( $toVals as $to ) {
+						try {
+							yield self::jqSlice( $base, $from, $to );
+						} catch ( JQError $e ) {
+							if ( !$opt ) {
+								throw $e;
+							}
+						}
+					}
+				}
+			}
+		};
+	}
+
+	private static function jqSlice( mixed $base, mixed $from, mixed $to ): mixed {
+		if ( $base === null ) {
+			return null;
+		}
+		if ( is_string( $base ) ) {
+			$len = mb_strlen( $base );
+			$f = self::normalizeSliceIdx( $from, $len, 0 );
+			$t = self::normalizeSliceIdx( $to, $len, $len );
+			return mb_substr( $base, $f, max( 0, $t - $f ) );
+		}
+		if ( is_array( $base ) ) {
+			$len = count( $base );
+			$f = self::normalizeSliceIdx( $from, $len, 0 );
+			$t = self::normalizeSliceIdx( $to, $len, $len );
+			return array_values( array_slice( $base, $f, max( 0, $t - $f ) ) );
+		}
+		throw new JQError( self::typeName( $base ) . ' cannot be sliced' );
+	}
+
+	private static function normalizeSliceIdx( mixed $idx, int $len, int $default ): int {
+		if ( $idx === null ) {
+			return $default;
+		}
+		$i = (int)$idx;
+		if ( $i < 0 ) {
+			$i = $len + $i;
+		}
+		return min( max( 0, $i ), $len );
 	}
 
 	/**

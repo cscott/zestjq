@@ -67,10 +67,11 @@ class JQTopLevelEnv extends JQEnv {
 			yield from [];
 		};
 
-		// error/0 — throw the input value as a JQError
+		// error/0 — throw the input value as a JQError; jqValue carries original
 		$defs['error/0'] = static function ( mixed $input, JQEnv $env ): Generator {
 			yield from [];
-			throw new JQError( is_string( $input ) ? $input : ( json_encode( $input ) ?: 'null' ) );
+			$msg = is_string( $input ) ? $input : ( json_encode( $input ) ?: 'null' );
+			throw new JQError( $msg, $input );
 		};
 
 		// keys_unsorted/0 — object keys (insertion order) or array indices
