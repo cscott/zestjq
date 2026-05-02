@@ -606,19 +606,21 @@ class JQCompile {
 	private function compileCompare( array $node ): Closure {
 		$leftFn  = $this->compileNode( $node['left'] );
 		$rightFn = $this->compileNode( $node['right'] );
-		$op      = $node['op'];
+		$op      = match ( $node['op'] ) {
+			'==' => self::jqEqual( ... ),
+			'!=' => fn ( $lv, $rv ) => !self::jqEqual( $lv, $rv ),
+			'<'  => fn ( $lv, $rv ) => self::jqCompare( $lv, $rv ) < 0,
+			'<=' => fn ( $lv, $rv ) => self::jqCompare( $lv, $rv ) <= 0,
+			'>'  => fn ( $lv, $rv ) => self::jqCompare( $lv, $rv ) > 0,
+			'>=' => fn ( $lv, $rv ) => self::jqCompare( $lv, $rv ) >= 0,
+			default => throw new \LogicException(
+				'Unknown comparison operator: ' . $node['op']
+			),
+		};
 		return static function ( mixed $input, JQEnv $env ) use ( $leftFn, $rightFn, $op ): Generator {
 			foreach ( $leftFn( $input, $env ) as $lv ) {
 				foreach ( $rightFn( $input, $env ) as $rv ) {
-					yield match ( $op ) {
-						'==' => self::jqEqual( $lv, $rv ),
-						'!=' => !self::jqEqual( $lv, $rv ),
-						'<'  => self::jqCompare( $lv, $rv ) < 0,
-						'<=' => self::jqCompare( $lv, $rv ) <= 0,
-						'>'  => self::jqCompare( $lv, $rv ) > 0,
-						'>=' => self::jqCompare( $lv, $rv ) >= 0,
-						default => throw new JQError( 'Unknown comparison operator: ' . $op ),
-					};
+					yield $op( $lv, $rv );
 				}
 			}
 		};
@@ -713,11 +715,13 @@ class JQCompile {
 		$kb = array_keys( $bv );
 		sort( $ka );
 		sort( $kb );
-		if ( ( $c = self::jqCompare( $ka, $kb ) ) !== 0 ) {
+		$c = self::jqCompare( $ka, $kb );
+		if ( $c !== 0 ) {
 			return $c;
 		}
 		foreach ( $ka as $k ) {
-			if ( ( $c = self::jqCompare( $av[$k], $bv[$k] ) ) !== 0 ) {
+			$c = self::jqCompare( $av[$k], $bv[$k] );
+			if ( $c !== 0 ) {
 				return $c;
 			}
 		}
@@ -821,7 +825,8 @@ class JQCompile {
 	 * @return Closure(mixed,JQEnv):Generator a Filter
 	 */
 	private function compileIndex( array $node ): Closure {
-		$exprFn = isset( $node['expr'] ) ? $this->compileNode( $node['expr'] ) : $this->compileIdentity();
+		$exprFn = isset( $node['expr'] ) ?
+			$this->compileNode( $node['expr'] ) : $this->compileIdentity();
 		$keyFn  = $this->compileNode( $node['key'] );
 		$opt    = $node['opt'];
 		return static function ( mixed $input, JQEnv $env ) use ( $exprFn, $keyFn, $opt ): Generator {
@@ -834,17 +839,21 @@ class JQCompile {
 						if ( $base === null ) {
 							yield null;
 						} elseif ( is_object( $base ) ) {
-							if ( !is_string( $key ) ) {
+							if ( !( is_string( $key ) || self::isNumber( $key ) ) ) {
 								throw new JQError(
 									'Cannot index object with ' . self::typeName( $key )
 								);
 							}
+							$key = (string)$key;
 							if ( property_exists( $base, $key ) ) {
 								yield $base->$key;
 							} elseif ( !$opt ) {
 								yield null;
 							}
-						} elseif ( is_array( $base ) && !array_is_list( $base ) ) {
+						} elseif ( is_array( $base ) && is_int( $key ) ) {
+							$idx = $key < 0 ? $key + count( $base ) : $key;
+							yield $base[$idx] ?? null;
+						} elseif ( is_array( $base ) ) {
 							// Associative PHP array (defensive; normally objects are stdClass)
 							if ( !is_string( $key ) ) {
 								throw new JQError(
@@ -856,14 +865,6 @@ class JQCompile {
 							} elseif ( !$opt ) {
 								yield null;
 							}
-						} elseif ( is_array( $base ) ) {
-							if ( !is_int( $key ) ) {
-								throw new JQError(
-									'Cannot index array with ' . self::typeName( $key )
-								);
-							}
-							$idx = $key < 0 ? $key + count( $base ) : $key;
-							yield $base[$idx] ?? null;
 						} else {
 							throw new JQError(
 								'Cannot index ' . self::typeName( $base ) .
@@ -1042,24 +1043,20 @@ class JQCompile {
 	private function compileBinop( array $node ): Closure {
 		$leftFn  = $this->compileNode( $node['left'] );
 		$rightFn = $this->compileNode( $node['right'] );
-		$op      = $node['op'];
+		$op      = match ( $node['op'] ) {
+			'+' => self::jqAdd( ... ),
+			'-' => self::jqSubtract( ... ),
+			'*' => self::jqMultiply( ... ),
+			'/' => self::jqDivide( ... ),
+			'%' => self::jqModulo( ... ),
+			default => throw new \LogicException( 'Unknown operator: ' . $op ),
+		};
 		return static function ( mixed $input, JQEnv $env ) use ( $leftFn, $rightFn, $op ): Generator {
 			foreach ( $leftFn( $input, $env ) as $lv ) {
 				foreach ( $rightFn( $input, $env ) as $rv ) {
-					yield self::jqBinop( $op, $lv, $rv );
+					yield $op( $lv, $rv );
 				}
 			}
-		};
-	}
-
-	private static function jqBinop( string $op, mixed $a, mixed $b ): mixed {
-		return match ( $op ) {
-			'+' => self::jqAdd( $a, $b ),
-			'-' => self::jqSubtract( $a, $b ),
-			'*' => self::jqMultiply( $a, $b ),
-			'/' => self::jqDivide( $a, $b ),
-			'%' => self::jqModulo( $a, $b ),
-			default => throw new JQError( 'Unknown operator: ' . $op ),
 		};
 	}
 
