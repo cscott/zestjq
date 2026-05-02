@@ -296,8 +296,8 @@ Term
   /* if-then-else */
   / "if" !IdentChar _ cond:Query _
     "then" !IdentChar _ then:Query _
-    body:ElseBody
-    { return [ 'type' => 'if', 'cond' => $cond, 'then' => $then, 'else' => $body ]; }
+    elseBody:ElseBody
+    { return [ 'type' => 'if', 'cond' => $cond, 'then' => $then, 'else' => $elseBody ]; }
 
   /* try-catch (body is at Postfix level to avoid consuming 'catch') */
   / "try" !IdentChar _ body:Postfix _ catch_:TryCatch?

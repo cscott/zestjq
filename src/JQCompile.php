@@ -52,7 +52,7 @@ class JQCompile {
 		$compiler = new self();
 		$fn = $compiler->compileNode( $ast );
 		return static function ( mixed $input ) use ( $fn, $env ): Generator {
-			return $fn( $input, $env );
+			yield from $fn( $input, $env );
 		};
 	}
 
@@ -90,6 +90,7 @@ class JQCompile {
 			'comma'    => $this->compileComma( $node ),
 			'array'    => $this->compileArray( $node ),
 			'object'   => $this->compileObject( $node ),
+			'if'       => $this->compileIf( $node ),
 			default    => static function ( mixed $input, JQEnv $env ) use ( $node ): Generator {
 				yield from [];
 				throw new \LogicException( 'compileNode: not yet implemented for node type: ' . $node['type'] );
@@ -332,6 +333,36 @@ class JQCompile {
 			$fn = ( $factory )( $argFns );
 			// @phan-suppress-next-line PhanTypeInvalidCallable,PhanUndeclaredInvokeInCallable
 			yield from $fn( $input, $env );
+		};
+	}
+
+	/**
+	 * Compile an if node (if cond then body else alt end).
+	 *
+	 * The condition is evaluated against the input; for each of its outputs,
+	 * the then-branch is evaluated if the output is JQ-truthy (anything except
+	 * null and false), otherwise the else-branch is evaluated. Both branches
+	 * receive the original input, not the condition's output.
+	 *
+	 * elif chains are represented in the AST as a nested if in the else slot.
+	 * An if without an explicit else has {type:'literal',value:null} as its
+	 * else node (the grammar's canonical representation).
+	 *
+	 * @param array $node Node with 'cond', 'then', and 'else' keys
+	 * @return Closure(mixed,JQEnv):Generator a Filter
+	 */
+	private function compileIf( array $node ): Closure {
+		$condFn = $this->compileNode( $node['cond'] );
+		$thenFn = $this->compileNode( $node['then'] );
+		$elseFn = $this->compileNode( $node['else'] );
+		return static function ( mixed $input, JQEnv $env ) use ( $condFn, $thenFn, $elseFn ): Generator {
+			foreach ( $condFn( $input, $env ) as $condVal ) {
+				if ( $condVal !== null && $condVal !== false ) {
+					yield from $thenFn( $input, $env );
+				} else {
+					yield from $elseFn( $input, $env );
+				}
+			}
 		};
 	}
 

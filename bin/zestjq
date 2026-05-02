@@ -68,6 +68,8 @@ function runFilter( Closure $filter, mixed $input ): int {
 	global $rawOutput;
 	try {
 		foreach ( $filter( $input ) as $output ) {
+			// Note that we're dropping the keys from the result, just
+			// outputting results in order.
 			echo encodeOutput( $output, $rawOutput ) . "\n";
 		}
 	} catch ( JQError $e ) {

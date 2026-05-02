@@ -5,8 +5,8 @@ namespace Wikimedia\Zest\Tests;
 
 use Wikimedia\Zest\IOContext;
 use Wikimedia\Zest\JQCompile;
-use Wikimedia\Zest\JQEnv;
 use Wikimedia\Zest\JQGrammar;
+use Wikimedia\Zest\JQLazyEnv;
 use Wikimedia\Zest\ZestJQ;
 
 /**
@@ -38,9 +38,14 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 		$expected = array_map( ZestJQ::jsonDecode( ... ), $expected );
 		$g = new JQGrammar;
 		$ast = $g->parse( $query );
-		$env = new JQEnv( null, new IOContext );
+		$env = new JQLazyEnv( new IOContext );
 		$eval = JQCompile::compile( $ast, $env );
-		$result = iterator_to_array( $eval( $input ) );
+		$result = [];
+		foreach ( $eval( $input ) as $val ) {
+			// Deliberately dropping the keys from the generator here,
+			// so we don't get collisions we make a list out of the results.
+			$result[] = $val;
+		}
 		$this->assertTrue(
 			JQCompile::jqCompare( $expected, $result ) === 0,
 			json_encode( $result )

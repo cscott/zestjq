@@ -357,8 +357,8 @@ private function a51($fmt) {
 private function a52($name) {
  return [ 'type' => 'variable', 'name' => $name ]; 
 }
-private function a53($cond, $then, $body) {
- return [ 'type' => 'if', 'cond' => $cond, 'then' => $then, 'else' => $body ]; 
+private function a53($cond, $then, $elseBody) {
+ return [ 'type' => 'if', 'cond' => $cond, 'then' => $then, 'else' => $elseBody ]; 
 }
 private function a54($body, $catch_) {
  return [ 'type' => 'try', 'body' => $body, 'catch' => $catch_ ]; 
@@ -5967,7 +5967,7 @@ private function parseTerm($silence) {
     goto seq_27;
   }
   seq_27:
-  // body <- $r26
+  // elseBody <- $r26
   if ($r26===self::$FAILED) {
     $this->currPos = $p3;
     $r1 = self::$FAILED;
