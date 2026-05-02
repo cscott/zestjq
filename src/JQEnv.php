@@ -13,9 +13,9 @@ namespace Wikimedia\Zest;
  */
 class JQEnv {
 	/**
-	 * @param array<string,\Closure> $defs  Compiled functions keyed "name/arity"
+	 * @param array<string,\Closure> $defs Compiled functions keyed "name/arity"
 	 *   e.g. "map/1", "length/0", "foo::bar/2"
-	 * @param IOContext $io  Shared I/O context (same object across all derived envs)
+	 * @param IOContext $io Shared I/O context (same object across all derived envs)
 	 */
 	public function __construct(
 		private array $defs = [],
@@ -29,9 +29,9 @@ class JQEnv {
 	 * All filter parameters (including desugared value params) are represented
 	 * as \Closure(mixed $input, JQEnv $env): \Generator.
 	 *
-	 * @param string   $name   Function name (may include a :: namespace)
-	 * @param int      $arity  Number of filter arguments
-	 * @param \Closure $fn     Compiled body: \Closure(mixed $input, JQEnv $env): \Generator
+	 * @param string $name Function name (may include a :: namespace)
+	 * @param int $arity Number of filter arguments
+	 * @param \Closure $fn Compiled body: \Closure(mixed $input, JQEnv $env): \Generator
 	 */
 	public function bind( string $name, int $arity, \Closure $fn ): self {
 		$new = clone $this;

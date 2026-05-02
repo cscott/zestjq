@@ -122,9 +122,9 @@ class JQGrammarTest extends \PHPUnit\Framework\TestCase {
 			$ast = $g->parse( $query );
 			$this->assertIsArray( $ast );
 			$this->assertArrayHasKey( 'type', $ast );
-		} catch (\Wikimedia\WikiPEG\SyntaxError $e) {
+		} catch ( \Wikimedia\WikiPEG\SyntaxError $e ) {
 			// Include line number information
-			throw new \Error(json_encode($e));
+			throw new \Error( json_encode( $e ) );
 		}
 	}
 

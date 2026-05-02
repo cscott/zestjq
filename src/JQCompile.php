@@ -44,8 +44,8 @@ class JQCompile {
 	 * lexical scope. Calling the closure multiple times (with different
 	 * inputs) is safe and efficient: the AST is compiled only once.
 	 *
-	 * @param array  $ast  AST produced by JQGrammar::parse()
-	 * @param JQEnv  $env  Initial lexical environment (builtins, prelude defs)
+	 * @param array $ast AST produced by JQGrammar::parse()
+	 * @param JQEnv $env Initial lexical environment (builtins, prelude defs)
 	 * @return Closure(mixed $input): Generator
 	 */
 	public static function compile( array $ast, JQEnv $env ): Closure {
@@ -68,7 +68,7 @@ class JQCompile {
 	 * reference so that recursive calls work), ignoring the call-time env for
 	 * the body itself. See the 'def' case for details.
 	 *
-	 * @param array $node  AST node (must have a 'type' key)
+	 * @param array $node AST node (must have a 'type' key)
 	 * @return Closure(mixed $input, JQEnv $env): Generator  Filter
 	 */
 	private function compileNode( array $node ): Closure {
@@ -105,7 +105,7 @@ class JQCompile {
 	 * Feeds each output of the left filter as input to the right filter,
 	 * yielding all outputs produced across all intermediate values.
 	 *
-	 * @param array $node  Node with 'left' and 'right' keys
+	 * @param array $node Node with 'left' and 'right' keys
 	 * @return Closure(mixed $input, JQEnv $env): Generator  Filter
 	 */
 	private function compilePipe( array $node ): Closure {
@@ -122,7 +122,7 @@ class JQCompile {
 	 * Compile a literal node (null, true, false, number, plain string).
 	 * Yields the literal value, ignoring the input.
 	 *
-	 * @param array $node  Node with 'value' key
+	 * @param array $node Node with 'value' key
 	 * @return Closure(mixed $input, JQEnv $env): Generator  Filter
 	 */
 	private function compileLiteral( array $node ): Closure {
@@ -138,7 +138,7 @@ class JQCompile {
 	 * and silently terminating the stream. A break for a different label
 	 * is re-thrown so it can be caught by the appropriate outer label.
 	 *
-	 * @param array $node  Node with 'name' and 'body' keys
+	 * @param array $node Node with 'name' and 'body' keys
 	 * @return Closure(mixed $input, JQEnv $env): Generator  Filter
 	 */
 	private function compileLabel( array $node ): Closure {
@@ -165,7 +165,7 @@ class JQCompile {
 	 * (so calling it returns a Generator rather than throwing immediately)
 	 * without introducing unreachable code.
 	 *
-	 * @param array $node  Node with 'name' key
+	 * @param array $node Node with 'name' key
 	 * @return Closure(mixed $input, JQEnv $env): Generator  Filter
 	 */
 	private function compileBreak( array $node ): Closure {
@@ -182,7 +182,7 @@ class JQCompile {
 	 * to it. Variables are bound into the env by compilePattern's var_pattern
 	 * case; the stored filter ignores its input and yields the captured value.
 	 *
-	 * @param array $node  Node with 'name' key
+	 * @param array $node Node with 'name' key
 	 * @return Closure(mixed $input, JQEnv $env): Generator  Filter
 	 */
 	private function compileVariable( array $node ): Closure {
@@ -215,7 +215,7 @@ class JQCompile {
 	 * into the lexical env, then returns the body filter. Filter args are
 	 * always evaluated in the call-site env, not the def-body env.
 	 *
-	 * @param array $node  Node with 'name', 'params', 'body', and 'rest' keys
+	 * @param array $node Node with 'name', 'params', 'body', and 'rest' keys
 	 * @return Closure(mixed $input, JQEnv $env): Generator  Filter
 	 */
 	private function compileDef( array $node ): Closure {
@@ -287,13 +287,13 @@ class JQCompile {
 	 *  - n-arity: the stored value is a FunctionFactory; pass the compiled arg
 	 *    closures to get a Filter, then run the Filter with the call-site env.
 	 *
-	 * @param array $node  Node with 'name' and 'args' keys
+	 * @param array $node Node with 'name' and 'args' keys
 	 * @return Closure(mixed $input, JQEnv $env): Generator  Filter
 	 */
 	private function compileCall( array $node ): Closure {
 		$name   = $node['name'];
 		$arity  = count( $node['args'] );
-		$argFns = array_map( fn( $arg ) => $this->compileNode( $arg ), $node['args'] );
+		$argFns = array_map( fn ( $arg ) => $this->compileNode( $arg ), $node['args'] );
 
 		if ( $arity === 0 ) {
 			return static function ( mixed $input, JQEnv $env ) use ( $name ): Generator {
@@ -326,7 +326,7 @@ class JQCompile {
 	 * - $innerEnv flows only into body, never outward. Bindings introduced
 	 *   here are invisible outside the body, giving correct lexical scoping.
 	 *
-	 * @param array $node  Node with 'expr', 'pattern', and 'body' keys
+	 * @param array $node Node with 'expr', 'pattern', and 'body' keys
 	 * @return Closure(mixed $input, JQEnv $env): Generator  Filter
 	 */
 	private function compileBind( array $node ): Closure {
@@ -363,7 +363,7 @@ class JQCompile {
 				);
 			};
 		} elseif ( $pat['type'] === 'array_pattern' ) {
-			$elemFns = array_map( fn( $p ) => $this->compilePattern( $p ), $pat['elems'] );
+			$elemFns = array_map( fn ( $p ) => $this->compilePattern( $p ), $pat['elems'] );
 			return static function ( mixed $val, JQEnv $env ) use ( $elemFns ): Generator {
 				if ( !is_array( $val ) || !array_is_list( $val ) ) {
 					throw new JQError( 'Cannot destructure ' . self::typeName( $val ) . ' as array' );
@@ -410,7 +410,7 @@ class JQCompile {
 				yield $currentEnv;
 			};
 		} elseif ( $pat['type'] === 'alt_pattern' ) {
-			$altFns = array_map( fn( $p ) => $this->compilePattern( $p ), $pat['patterns'] );
+			$altFns = array_map( fn ( $p ) => $this->compilePattern( $p ), $pat['patterns'] );
 			return static function ( mixed $val, JQEnv $env ) use ( $altFns ): Generator {
 				foreach ( $altFns as $altFn ) {
 					try {
@@ -456,7 +456,7 @@ class JQCompile {
 	 * null input yields null; object input yields the field value (or null if
 	 * absent); any other type throws JQError (suppressed to empty if opt).
 	 *
-	 * @param array $node  Node with 'expr', 'name', and 'opt' keys
+	 * @param array $node Node with 'expr', 'name', and 'opt' keys
 	 * @return Closure(mixed $input, JQEnv $env): Generator  Filter
 	 */
 	private function compileField( array $node ): Closure {
@@ -490,7 +490,7 @@ class JQCompile {
 	 * Supports object indexing by string and array indexing by integer
 	 * (with negative indices counting from the end). null input yields null.
 	 *
-	 * @param array $node  Node with 'expr', 'key', and 'opt' keys
+	 * @param array $node Node with 'expr', 'key', and 'opt' keys
 	 * @return Closure(mixed $input, JQEnv $env): Generator  Filter
 	 */
 	private function compileIndex( array $node ): Closure {
@@ -544,7 +544,7 @@ class JQCompile {
 	 * rather than the values at those paths. Reserved for future use by
 	 * path/1 and related builtins (getpath, setpath, delpaths, leaf_paths…).
 	 *
-	 * @param array $node  AST node
+	 * @param array $node AST node
 	 * @return Closure(mixed $input, JQEnv $env): Generator  Filter (yields path arrays, not values)
 	 * @suppress PhanPluginNeverReturnMethod
 	 */
