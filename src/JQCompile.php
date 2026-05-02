@@ -83,6 +83,8 @@ class JQCompile {
 			'call'     => $this->compileCall( $node ),
 			'bind'     => $this->compileBind( $node ),
 			'compare'  => $this->compileCompare( $node ),
+			'iter'     => $this->compileIter( $node ),
+			'neg'      => $this->compileNeg( $node ),
 			'field'    => $this->compileField( $node ),
 			'index'    => $this->compileIndex( $node ),
 			default    => throw new \LogicException( 'compileNode: not yet implemented for node type: ' . $node['type'] ),
@@ -449,8 +451,11 @@ class JQCompile {
 		if ( is_string( $v ) ) {
 			return 'string';
 		}
+		if ( is_object( $v ) ) {
+			return 'object';
+		}
 		if ( is_array( $v ) ) {
-			return array_is_list( $v ) ? 'array' : 'object';
+			return 'array';
 		}
 		return 'unknown';
 	}
@@ -499,11 +504,28 @@ class JQCompile {
 		if ( is_int( $a ) || is_float( $a ) ) {
 			return ( is_int( $b ) || is_float( $b ) ) && $a == $b;
 		}
+		// stdClass objects (JSON objects)
+		if ( is_object( $a ) ) {
+			if ( !is_object( $b ) ) {
+				return false;
+			}
+			$av = get_object_vars( $a );
+			$bv = get_object_vars( $b );
+			if ( count( $av ) !== count( $bv ) ) {
+				return false;
+			}
+			foreach ( $av as $k => $v ) {
+				if ( !array_key_exists( $k, $bv ) || !self::jqEqual( $v, $bv[$k] ) ) {
+					return false;
+				}
+			}
+			return true;
+		}
 		// null, bool, string: identity
 		if ( !is_array( $a ) ) {
 			return $a === $b;
 		}
-		// array / object
+		// array
 		if ( !is_array( $b ) || count( $a ) !== count( $b ) ) {
 			return false;
 		}
@@ -528,7 +550,8 @@ class JQCompile {
 			if ( $v === true ) return 2;
 			if ( is_int( $v ) || is_float( $v ) ) return 3;
 			if ( is_string( $v ) ) return 4;
-			return is_array( $v ) && array_is_list( $v ) ? 5 : 6;
+			if ( is_array( $v ) ) return 5;
+			return 6;  // stdClass object
 		};
 		$ta = $order( $a );
 		$tb = $order( $b );
@@ -551,20 +574,72 @@ class JQCompile {
 			}
 			return count( $a ) <=> count( $b );
 		}
-		// objects: sort by keys, then compare key-value pairs in order
-		$ka = array_keys( $a );
-		$kb = array_keys( $b );
+		// objects (stdClass): sort by keys, then compare key-value pairs in order
+		$av = get_object_vars( $a );
+		$bv = get_object_vars( $b );
+		$ka = array_keys( $av );
+		$kb = array_keys( $bv );
 		sort( $ka );
 		sort( $kb );
 		if ( ( $c = self::jqCompare( $ka, $kb ) ) !== 0 ) {
 			return $c;
 		}
 		foreach ( $ka as $k ) {
-			if ( ( $c = self::jqCompare( $a[$k], $b[$k] ) ) !== 0 ) {
+			if ( ( $c = self::jqCompare( $av[$k], $bv[$k] ) ) !== 0 ) {
 				return $c;
 			}
 		}
 		return 0;
+	}
+
+	/**
+	 * Compile an iter node (expr[] or expr[]?).
+	 * Iterates over arrays (yielding each element) and objects (yielding each
+	 * value in insertion order). null and other non-iterable types throw
+	 * JQError, suppressed to empty output when opt is true.
+	 *
+	 * @param array $node Node with 'expr' and 'opt' keys
+	 * @return Closure(mixed,JQEnv):Generator a Filter
+	 */
+	private function compileIter( array $node ): Closure {
+		$exprFn = $this->compileNode( $node['expr'] );
+		$opt    = $node['opt'];
+		return static function ( mixed $input, JQEnv $env ) use ( $exprFn, $opt ): Generator {
+			foreach ( $exprFn( $input, $env ) as $base ) {
+				try {
+					if ( is_object( $base ) ) {
+						yield from get_object_vars( $base );
+					} elseif ( is_array( $base ) ) {
+						yield from $base;
+					} else {
+						throw new JQError( self::typeName( $base ) . ' is not iterable' );
+					}
+				} catch ( JQError $e ) {
+					if ( !$opt ) {
+						throw $e;
+					}
+				}
+			}
+		};
+	}
+
+	/**
+	 * Compile a unary negation node (-expr).
+	 * Yields -$v for each numeric value; throws JQError for non-numbers.
+	 *
+	 * @param array $node Node with 'expr' key
+	 * @return Closure(mixed,JQEnv):Generator a Filter
+	 */
+	private function compileNeg( array $node ): Closure {
+		$exprFn = $this->compileNode( $node['expr'] );
+		return static function ( mixed $input, JQEnv $env ) use ( $exprFn ): Generator {
+			foreach ( $exprFn( $input, $env ) as $v ) {
+				if ( !is_int( $v ) && !is_float( $v ) ) {
+					throw new JQError( 'Cannot negate ' . self::typeName( $v ) );
+				}
+				yield -$v;
+			}
+		};
 	}
 
 	/**
@@ -584,8 +659,20 @@ class JQCompile {
 				try {
 					if ( $base === null ) {
 						yield null;
+					} elseif ( is_object( $base ) ) {
+						if ( property_exists( $base, $name ) ) {
+							yield $base->$name;
+						} elseif ( !$opt ) {
+							yield null;
+						}
+						// opt + absent key: yield nothing (suppresses downstream chain)
 					} elseif ( is_array( $base ) && !array_is_list( $base ) ) {
-						yield $base[$name] ?? null;
+						// Associative PHP array (defensive; normally objects are stdClass)
+						if ( array_key_exists( $name, $base ) ) {
+							yield $base[$name];
+						} elseif ( !$opt ) {
+							yield null;
+						}
 					} else {
 						throw new JQError(
 							'Cannot index ' . self::typeName( $base ) . ' with string "' . $name . '"'
@@ -622,13 +709,29 @@ class JQCompile {
 					try {
 						if ( $base === null ) {
 							yield null;
-						} elseif ( is_array( $base ) && !array_is_list( $base ) ) {
+						} elseif ( is_object( $base ) ) {
 							if ( !is_string( $key ) ) {
 								throw new JQError(
 									'Cannot index object with ' . self::typeName( $key )
 								);
 							}
-							yield $base[$key] ?? null;
+							if ( property_exists( $base, $key ) ) {
+								yield $base->$key;
+							} elseif ( !$opt ) {
+								yield null;
+							}
+						} elseif ( is_array( $base ) && !array_is_list( $base ) ) {
+							// Associative PHP array (defensive; normally objects are stdClass)
+							if ( !is_string( $key ) ) {
+								throw new JQError(
+									'Cannot index object with ' . self::typeName( $key )
+								);
+							}
+							if ( array_key_exists( $key, $base ) ) {
+								yield $base[$key];
+							} elseif ( !$opt ) {
+								yield null;
+							}
 						} elseif ( is_array( $base ) ) {
 							if ( !is_int( $key ) ) {
 								throw new JQError(

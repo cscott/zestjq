@@ -35,7 +35,7 @@ class JQGrammarTest extends \PHPUnit\Framework\TestCase {
 	 *
 	 * @return list<array{fail?:true,query:string,label:string,input?:?string,expected?:?string}>
 	 */
-	private static function loadTests(): array {
+	public static function loadTests(): array {
 		static $tests = null;
 		if ( $tests !== null ) {
 			return $tests;
@@ -85,10 +85,14 @@ class JQGrammarTest extends \PHPUnit\Framework\TestCase {
 				// Normal group: first line is the query
 				$query  = $groupLines[0]['line'];
 				$lineno = $groupLines[0]['lineno'];
+				$expected = array_slice(
+					array_map(fn($g)=>$g['line'],$groupLines),
+					2
+				);
 				$tests[] = [
 					'query' => $query,
 					'input' => $groupLines[1]['line'] ?? null,
-					'expected' => $groupLines[2]['line'] ?? null,
+					'expected' => $expected,
 					'label' => "line $lineno: $query",
 					'lineno' => $lineno,
 				];
