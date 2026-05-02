@@ -63,6 +63,7 @@ class JQCompile {
 		return match ( $node['type'] ) {
 			'identity' => $this->evalIdentity(),
 			'literal'  => $this->evalLiteral( $node ),
+			'pipe'     => $this->evalPipe( $node ),
 			default    => throw new \LogicException( 'evalNode: not yet implemented for node type: ' . $node['type'] ),
 		};
 	}
@@ -76,6 +77,24 @@ class JQCompile {
 	private function evalIdentity(): \Closure {
 		return static function ( mixed $input, JQEnv $env ): \Generator {
 			yield $input;
+		};
+	}
+
+	/**
+	 * Compile a pipe node (left | right).
+	 * Feeds each output of the left filter as input to the right filter,
+	 * yielding all outputs produced across all intermediate values.
+	 *
+	 * @param array $node  Node with 'left' and 'right' keys
+	 * @return \Closure(mixed $input, JQEnv $env): \Generator
+	 */
+	private function evalPipe( array $node ): \Closure {
+		$leftFn  = $this->evalNode( $node['left'] );
+		$rightFn = $this->evalNode( $node['right'] );
+		return static function ( mixed $input, JQEnv $env ) use ( $leftFn, $rightFn ): \Generator {
+			foreach ( $leftFn( $input, $env ) as $mid ) {
+				yield from $rightFn( $mid, $env );
+			}
 		};
 	}
 
