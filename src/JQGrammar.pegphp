@@ -77,14 +77,37 @@ Pipe
 
 /* ================================================================== */
 /*  Comma  ,   left-associative; generates multiple outputs            */
+/*  The right side of a comma can open a new def/as/label scope,      */
+/*  matching the upstream Query production where all these share the   */
+/*  same precedence level.                                             */
 /* ================================================================== */
 
 Comma
-  = left:Expr right:(_ "," _ @Comma)?
+  = first:Expr rest:(_ "," _ @CommaRHS)*
     {
-      return $right === null ? $left :
-        [ 'type' => 'comma', 'left' => $left, 'right' => $right ];
+        $node = $first;
+        foreach ( $rest as $right ) {
+            $node = [ 'type' => 'comma', 'left' => $node, 'right' => $right ];
+        }
+        return $node;
     }
+
+/*
+ * Right-hand side of a comma.  Mirrors the productions available at
+ * the Query/Pipe level so that things like `a, def f: x; b` and
+ * `a, b as $x | c` parse correctly (the def/as "steals" the last
+ * Expr before it, just as bison's default shift preference does in
+ * the upstream grammar).
+ */
+CommaRHS
+  = "def" !IdentChar _ name:FuncName _ params:FuncParams _ ":" _ body:Pipe _ ";" _ rest:Pipe
+    { return [ 'type' => 'def', 'name' => $name, 'params' => $params,
+               'body' => $body, 'rest' => $rest ]; }
+  / src:Expr _ "as" !IdentChar _ pat:Patterns _ "|" _ body:Pipe
+    { return [ 'type' => 'bind', 'expr' => $src, 'pattern' => $pat, 'body' => $body ]; }
+  / "label" !IdentChar _ "$" name:Name _ "|" _ body:Pipe
+    { return [ 'type' => 'label', 'name' => $name, 'body' => $body ]; }
+  / Expr
 
 Expr = Alt
 
