@@ -25,8 +25,8 @@ class JQEnv {
 	 *   e.g. "map/1", "length/0", "foo::bar/2"
 	 */
 	public function __construct(
-		private ?JQEnv $parent,
-		public IOContext $io,
+		private readonly ?JQEnv $parent,
+		public readonly IOContext $io,
 		private array $defs = [],
 	) {
 	}
@@ -78,52 +78,16 @@ class JQEnv {
 		return self::$stdEnv;
 	}
 
-	/**
-	 * Evaluate a JQ source string with $__env__ appended against a base
-	 * environment and return the JQEnv captured by $__env__.
-	 *
-	 * This is the mechanism used to bootstrap the standard library: each def
-	 * in the source registers a function in the env without executing its body,
-	 * so the resulting env has all defs available regardless of whether the
-	 * bodies reference yet-to-be-implemented built-ins.
-	 *
-	 * @param string $jqSrc JQ source ending just before a final expression
-	 * @param ?JQEnv $baseEnv Starting environment (null → empty env)
-	 * @return JQEnv The environment captured after all defs have been registered
-	 */
-	public static function evalForEnv( string $jqSrc, ?JQEnv $baseEnv = null ): JQEnv {
-		$baseEnv ??= new JQEnv( null, new IOContext );
-		$g = new JQGrammar;
-		try {
-			$ast = $g->parse( $jqSrc . "\n\$__env__" );
-		} catch ( \Wikimedia\WikiPEG\SyntaxError $e ) {
-			throw new \RuntimeException( 'Failed to parse JQ source for evalForEnv: ' . json_encode( $e ) );
-		}
-		return self::runAstForEnv( $ast, $baseEnv );
-	}
-
-	/** Compile a pre-parsed AST and run it to capture the yielded JQEnv. */
-	private static function runAstForEnv( array $ast, JQEnv $baseEnv ): JQEnv {
+	private static function buildStandardEnv(): JQEnv {
+		$baseEnv = new JQEnv( null, new IOContext );
+		$ast = JQBuiltin::getAst();
 		$f = JQCompile::compile( $ast, $baseEnv );
 		foreach ( $f( null ) as $val ) {
 			if ( $val instanceof JQEnv ) {
 				return $val;
 			}
 		}
-		throw new \RuntimeException( 'runAstForEnv: $__env__ was not yielded' );
+		throw new \RuntimeException( __METHOD__ . ': $__env__ was not yielded' );
 	}
 
-	private static function buildStandardEnv(): JQEnv {
-		$baseEnv = new JQEnv( null, new IOContext );
-		// Fast path: use the pre-parsed AST constant (available after composer build-stdenv).
-		if ( class_exists( JQBuiltin::class ) ) {
-			return self::runAstForEnv( JQBuiltin::getAst(), $baseEnv );
-		}
-		// Slow fallback: parse builtin.jq from source if JQBuiltin.php hasn't been generated.
-		$src = file_get_contents( __DIR__ . '/builtin.jq' );
-		if ( $src === false ) {
-			throw new \RuntimeException( 'Could not read builtin.jq' );
-		}
-		return self::evalForEnv( $src, $baseEnv );
-	}
 }

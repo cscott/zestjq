@@ -22,8 +22,8 @@ class JQLazyEnv extends JQEnv {
 
 	private ?JQEnv $resolved = null;
 
-	public function __construct() {
-		parent::__construct( null, new IOContext );
+	public function __construct( IOContext $io ) {
+		parent::__construct( null, $io );
 	}
 
 	/** @inheritDoc */
