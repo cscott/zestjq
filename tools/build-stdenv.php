@@ -4,8 +4,7 @@ declare( strict_types = 1 );
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-use Wikimedia\WikiPEG\SyntaxError;
-use Wikimedia\Zest\JQGrammar;
+use Wikimedia\Zest\JQCmd;
 
 $builtinPath = __DIR__ . '/../src/builtin.jq';
 $outPath     = __DIR__ . '/../src/JQBuiltin.php';
@@ -16,11 +15,17 @@ if ( $src === false ) {
 	exit( 1 );
 }
 
-$g = new JQGrammar;
-try {
-	$ast = $g->parse( $src . "\n\$__env__" );
-} catch ( SyntaxError $e ) {
-	fwrite( STDERR, "Syntax error in builtin.jq: " . $e->getMessage() . "\n" );
+ob_start();
+$exitCode = JQCmd::main( 4, [ 'build-stdenv', '-n', '--ast', $src . "\n\$__env__" ] );
+$astJson = ob_get_clean();
+if ( $exitCode !== 0 || $astJson === false ) {
+	fwrite( STDERR, "Error: could not parse builtin.jq (exit $exitCode)\n" );
+	exit( 1 );
+}
+
+$ast = json_decode( $astJson, true );
+if ( $ast === null ) {
+	fwrite( STDERR, "Error: could not decode AST from --ast output\n" );
 	exit( 1 );
 }
 
