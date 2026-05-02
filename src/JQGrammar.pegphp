@@ -315,6 +315,9 @@ DictPair
   /* identifier key: foo: expr */
   = key:DictKey _ ":" _ val:DictExpr
     { return [ 'key' => $key, 'value' => $val ]; }
+  /* {$var: expr} — key is the runtime value of $var */
+  / "$" name:Name _ ":" _ val:DictExpr
+    { return [ 'key' => [ 'type' => 'variable', 'name' => $name ], 'value' => $val ]; }
   /* shorthand: {foo} = {foo: .foo}  or  {$var} = {var: $var} */
   / name:FieldName
     { return [ 'key' => [ 'type' => 'literal', 'value' => $name ],
