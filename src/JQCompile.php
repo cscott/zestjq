@@ -103,6 +103,7 @@ class JQCompile {
 			'reduce'   => $this->compileReduce( $node ),
 			'foreach'  => $this->compileForeach( $node ),
 			'slice'    => $this->compileSlice( $node ),
+			'assign'   => $this->compileAssign( $node ),
 			default    => static function ( mixed $input, JQEnv $env ) use ( $node ): Generator {
 				yield from [];
 				throw new LogicException( 'compileNode: not yet implemented for node type: ' . $node['type'] );
@@ -1014,17 +1015,308 @@ class JQCompile {
 	}
 
 	/**
-	 * Compile one AST node in path-expression mode.
+	 * Compile an assign node (lhs = rhs, lhs |= f, or lhs op= rhs).
 	 *
-	 * The returned Closure yields path arrays such as ["foo", 0, "bar"]
-	 * rather than the values at those paths. Reserved for future use by
-	 * path/1 and related builtins (getpath, setpath, delpaths, leaf_paths…).
+	 * For plain =:  evaluate rhs against input, then set lhs to each result.
+	 * For |=:       get the current value at lhs, apply rhs as an update fn, set back.
+	 * For op= (+=, -=, *=, /=, %=, //=): desugars to lhs |= (. op rhs).
 	 *
-	 * @param array $node AST node
-	 * @return Closure(mixed,JQEnv):Generator a Filter (yields path arrays, not values)
-	 * @suppress PhanPluginNeverReturnMethod
+	 * @param array $node Node with 'op', 'left', and 'right' keys
+	 * @return Closure(mixed,JQEnv):Generator a Filter
+	 */
+	private function compileAssign( array $node ): Closure {
+		$op      = $node['op'];
+		$lhsNode = $node['left'];
+
+		if ( $op === '=' ) {
+			$setter = $this->compileSetter( $lhsNode );
+			$rhsFn  = $this->compileNode( $node['right'] );
+			return static function ( mixed $input, JQEnv $env ) use ( $setter, $rhsFn ): Generator {
+				foreach ( $rhsFn( $input, $env ) as $newVal ) {
+					yield $setter( $input, $newVal, $env );
+				}
+			};
+		}
+
+		// Desugar compound ops to |= : "lhs op= rhs" → "lhs |= (. op rhs)"
+		$updateFn = match ( $op ) {
+			'|='  => $this->compileNode( $node['right'] ),
+			'//=' => $this->compileAlternative( [ 'left' => [ 'type' => 'identity' ], 'right' => $node['right'] ] ),
+			default => $this->compileBinop( [
+				'op'    => rtrim( $op, '=' ),
+				'left'  => [ 'type' => 'identity' ],
+				'right' => $node['right'],
+			] ),
+		};
+
+		return $this->compilePathUpdate( $lhsNode, $updateFn );
+	}
+
+	/**
+	 * Compile a path expression into a Closure that yields path arrays.
+	 *
+	 * Each yielded value is an int|string[] describing one slot in the input,
+	 * e.g. ["a", 0, "b"] for .a[0].b.  Used by compileSetter and
+	 * compilePathUpdate, and will underpin path()/getpath/setpath builtins.
+	 *
+	 * @param array $node AST path node
+	 * @return Closure(mixed,JQEnv):Generator yields int|string[]
 	 */
 	private function compilePath( array $node ): Closure {
-		throw new LogicException( 'compilePath: not yet implemented for node type: ' . $node['type'] );
+		switch ( $node['type'] ) {
+			case 'identity':
+				return static function ( mixed $input, JQEnv $env ): Generator {
+					yield [];
+				};
+
+			case 'field':
+				$innerFn = $this->compilePath( $node['expr'] );
+				$name    = $node['name'];
+				return static function ( mixed $input, JQEnv $env ) use ( $innerFn, $name ): Generator {
+					foreach ( $innerFn( $input, $env ) as $prefix ) {
+						yield [ ...$prefix, $name ];
+					}
+				};
+
+			case 'index':
+				$innerFn = $this->compilePath( $node['expr'] ?? [ 'type' => 'identity' ] );
+				$keyFn   = $this->compileNode( $node['key'] );
+				return static function ( mixed $input, JQEnv $env ) use ( $innerFn, $keyFn ): Generator {
+					foreach ( $keyFn( $input, $env ) as $key ) {
+						if ( JQUtils::isNumber( $key ) ) {
+							$key = (int)$key;
+						}
+						foreach ( $innerFn( $input, $env ) as $prefix ) {
+							yield [ ...$prefix, $key ];
+						}
+					}
+				};
+
+			case 'iter':
+				$innerExprNode = $node['expr'] ?? [ 'type' => 'identity' ];
+				$innerPathFn   = $this->compilePath( $innerExprNode );
+				$innerReaderFn = $this->compileNode( $innerExprNode );
+				return static function ( mixed $input, JQEnv $env )
+					use ( $innerPathFn, $innerReaderFn ): Generator {
+					$container = null;
+					foreach ( $innerReaderFn( $input, $env ) as $v ) {
+						$container = $v;
+						break;
+					}
+					foreach ( $innerPathFn( $input, $env ) as $prefix ) {
+						if ( is_array( $container ) && array_is_list( $container ) ) {
+							for ( $i = 0; $i < count( $container ); $i++ ) {
+								yield [ ...$prefix, $i ];
+							}
+						} elseif ( is_object( $container ) ) {
+							foreach ( array_keys( get_object_vars( $container ) ) as $k ) {
+								yield [ ...$prefix, $k ];
+							}
+						} elseif ( $container !== null ) {
+							throw new JQError( JQUtils::typeName( $container ) . ' is not iterable' );
+						}
+					}
+				};
+
+			default:
+				throw new LogicException( 'compilePath: not yet implemented for node type: ' . $node['type'] );
+		}
 	}
+
+	/**
+	 * Compile a path expression into a setter Closure.
+	 *
+	 * The returned Closure has signature Closure(mixed $container, mixed $newVal, JQEnv): mixed
+	 * and returns $container with the path set to $newVal.
+	 *
+	 * @param array $pathNode AST path node
+	 * @return Closure(mixed,mixed,JQEnv):mixed
+	 */
+	private function compileSetter( array $pathNode ): Closure {
+		$pathFn = $this->compilePath( $pathNode );
+		return static function ( mixed $container, mixed $newVal, JQEnv $env ) use ( $pathFn ): mixed {
+			foreach ( $pathFn( $container, $env ) as $path ) {
+				return self::setAtPath( $container, $path, $newVal );
+			}
+			return $container;
+		};
+	}
+
+	/**
+	 * Compile "pathNode |= updateFn" — apply updateFn to every slot produced by
+	 * pathNode and write the result back.  Slots for which updateFn yields nothing
+	 * are deleted (jq |= empty semantics).  Array deletions are applied in reverse
+	 * index order to preserve correct positions.
+	 *
+	 * @param array $pathNode AST path node
+	 * @param Closure(mixed,JQEnv):Generator $updateFn
+	 * @return Closure(mixed,JQEnv):Generator a Filter
+	 */
+	private function compilePathUpdate( array $pathNode, Closure $updateFn ): Closure {
+		$pathFn = $this->compilePath( $pathNode );
+		return static function ( mixed $input, JQEnv $env ) use ( $pathFn, $updateFn ): Generator {
+			$toDelete = [];
+			foreach ( $pathFn( $input, $env ) as $path ) {
+				$current   = self::getAtPath( $input, $path );
+				$hasOutput = false;
+				foreach ( $updateFn( $current, $env ) as $newVal ) {
+					$input     = self::setAtPath( $input, $path, $newVal );
+					$hasOutput = true;
+					break;
+				}
+				if ( !$hasOutput ) {
+					$toDelete[] = $path;
+				}
+			}
+			foreach ( array_reverse( $toDelete ) as $path ) {
+				$input = self::deleteAtPath( $input, $path );
+			}
+			yield $input;
+		};
+	}
+
+	/**
+	 * Navigate to the value at $path within $val.
+	 * null propagates (null[x] → null); out-of-bounds returns null.
+	 *
+	 * @param mixed $val
+	 * @param array<int|string> $path
+	 */
+	private static function getAtPath( mixed $val, array $path ): mixed {
+		foreach ( $path as $key ) {
+			if ( $val === null ) {
+				return null;
+			}
+			if ( is_int( $key ) ) {
+				if ( !is_array( $val ) || !array_is_list( $val ) ) {
+					return null;
+				}
+				$idx = $key < 0 ? count( $val ) + $key : $key;
+				if ( $idx < 0 || $idx >= count( $val ) ) {
+					return null;
+				}
+				$val = $val[$idx];
+			} else {
+				if ( is_object( $val ) ) {
+					$val = property_exists( $val, $key ) ? $val->$key : null;
+				} elseif ( is_array( $val ) && !array_is_list( $val ) ) {
+					$val = array_key_exists( $key, $val ) ? $val[$key] : null;
+				} else {
+					return null;
+				}
+			}
+		}
+		return $val;
+	}
+
+	/**
+	 * Return $container with $newVal written at $path.
+	 * Promotes null → [] or stdClass based on key type; fills array gaps with null.
+	 * Throws JQError for out-of-bounds negative indices and oversized indices.
+	 *
+	 * @param mixed $container
+	 * @param array<int|string> $path
+	 * @param mixed $newVal
+	 */
+	private static function setAtPath( mixed $container, array $path, mixed $newVal ): mixed {
+		if ( count( $path ) === 0 ) {
+			return $newVal;
+		}
+		$key  = $path[0];
+		$rest = array_slice( $path, 1 );
+		if ( is_string( $key ) ) {
+			$inner = ( $container !== null && is_object( $container ) )
+				? ( $container->$key ?? null )
+				: null;
+			return self::doSetObjField( $container, $key, self::setAtPath( $inner, $rest, $newVal ) );
+		}
+		$idx = (int)$key;
+		if ( $idx < 0 ) {
+			if ( !is_array( $container ) ) {
+				throw new JQError( 'Out of bounds negative array index' );
+			}
+			$idx = count( $container ) + $idx;
+			if ( $idx < 0 ) {
+				throw new JQError( 'Out of bounds negative array index' );
+			}
+		}
+		if ( $idx >= self::MAX_ARRAY_INDEX ) {
+			throw new JQError( 'Array index too large' );
+		}
+		if ( $container === null ) {
+			$container = [];
+		}
+		if ( !is_array( $container ) || !array_is_list( $container ) ) {
+			throw new JQError( 'Cannot index ' . JQUtils::typeName( $container ) . ' with number' );
+		}
+		$inner = $container[$idx] ?? null;
+		$new   = $container;
+		while ( count( $new ) <= $idx ) {
+			$new[] = null;
+		}
+		$new[$idx] = self::setAtPath( $inner, $rest, $newVal );
+		return $new;
+	}
+
+	/**
+	 * Return $container with the slot at $path removed.
+	 * Array elements are spliced out (later elements shift left); object keys are unset.
+	 * Non-existent paths are silently ignored.
+	 *
+	 * @param mixed $container
+	 * @param array<int|string> $path
+	 */
+	private static function deleteAtPath( mixed $container, array $path ): mixed {
+		if ( count( $path ) === 0 ) {
+			return null;
+		}
+		$key  = $path[0];
+		$rest = array_slice( $path, 1 );
+		if ( count( $rest ) > 0 ) {
+			if ( is_string( $key ) && is_object( $container ) ) {
+				$new       = clone $container;
+				$new->$key = self::deleteAtPath( $container->$key ?? null, $rest );
+				return $new;
+			}
+			if ( is_int( $key ) && is_array( $container ) && array_is_list( $container ) ) {
+				$idx = $key < 0 ? count( $container ) + $key : $key;
+				if ( $idx >= 0 && $idx < count( $container ) ) {
+					$new      = $container;
+					$new[$idx] = self::deleteAtPath( $container[$idx], $rest );
+					return $new;
+				}
+			}
+			return $container;
+		}
+		if ( is_string( $key ) && is_object( $container ) ) {
+			$new = clone $container;
+			unset( $new->$key );
+			return $new;
+		}
+		if ( is_int( $key ) && is_array( $container ) && array_is_list( $container ) ) {
+			$idx = $key < 0 ? count( $container ) + $key : $key;
+			if ( $idx >= 0 && $idx < count( $container ) ) {
+				$new = $container;
+				array_splice( $new, $idx, 1 );
+				return $new;
+			}
+		}
+		return $container;
+	}
+
+	/** Set a named field on an object, promoting null to stdClass. */
+	private static function doSetObjField( mixed $obj, string $name, mixed $val ): mixed {
+		if ( $obj === null ) {
+			$obj = new \stdClass();
+		}
+		if ( !is_object( $obj ) ) {
+			throw new JQError( 'Cannot index ' . JQUtils::typeName( $obj ) . ' with string "' . $name . '"' );
+		}
+		$new        = clone $obj;
+		$new->$name = $val;
+		return $new;
+	}
+
+	/** Maximum array index; prevents accidental huge allocations. */
+	private const MAX_ARRAY_INDEX = 536870912;
 }
