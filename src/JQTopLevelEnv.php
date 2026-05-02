@@ -47,7 +47,7 @@ class JQTopLevelEnv extends JQEnv {
 				is_array( $input ) => count( $input ),
 				is_object( $input ) => count( get_object_vars( $input ) ),
 				is_string( $input ) => mb_strlen( $input ),
-				is_int( $input ) || is_float( $input ) => abs( $input ),
+				JQCompile::isNumber( $input ) => abs( $input ),
 				default => throw new JQError( JQCompile::typeName( $input ) . ' has no length' ),
 			};
 		};
@@ -166,7 +166,7 @@ class JQTopLevelEnv extends JQEnv {
 
 		// tonumber/0 — numbers pass through; strings are parsed
 		$defs['tonumber/0'] = static function ( mixed $input, JQEnv $env ): Generator {
-			if ( is_int( $input ) || is_float( $input ) ) {
+			if ( JQCompile::isNumber( $input ) ) {
 				yield $input;
 			} elseif ( is_string( $input ) && is_numeric( $input ) ) {
 				// @phan-suppress-next-line PhanTypeMismatchReturn
@@ -342,8 +342,8 @@ class JQTopLevelEnv extends JQEnv {
 			}
 			return true;
 		}
-		if ( is_int( $a ) || is_float( $a ) ) {
-			return ( is_int( $b ) || is_float( $b ) ) && $a == $b;
+		if ( JQCompile::isNumber( $a ) ) {
+			return ( JQCompile::isNumber( $b ) ) && $a == $b;
 		}
 		return $a === $b;
 	}
