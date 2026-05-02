@@ -483,8 +483,8 @@ String "string"
 QQPart
   = "\\(" _ expr:Query _ ")"
     { return [ 'type' => 'str_interp', 'expr' => $expr ]; }
-  / text:$( !"\\(" !'"' @SingleChar)+
-    { return [ 'type' => 'str_text', 'text' => $text ]; }
+  / chars:( !"\\(" !'"' @SingleChar)+
+    { return [ 'type' => 'str_text', 'text' => implode( '', $chars ) ]; }
 
 SingleChar
   /* jq apparently doesn't permit \v */
