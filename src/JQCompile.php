@@ -78,6 +78,7 @@ class JQCompile {
 			'pipe'     => $this->compilePipe( $node ),
 			'label'    => $this->compileLabel( $node ),
 			'break'    => $this->compileBreak( $node ),
+			'variable' => $this->compileVariable( $node ),
 			'bind'     => $this->compileBind( $node ),
 			'field'    => $this->compileField( $node ),
 			'index'    => $this->compileIndex( $node ),
@@ -170,6 +171,26 @@ class JQCompile {
 		return static function ( mixed $input, JQEnv $env ) use ( $name ): Generator {
 			yield from [];
 			throw new JQBreak( $name );
+		};
+	}
+
+	/**
+	 * Compile a variable node ($name).
+	 * Looks the name up as a 0-arity filter in the runtime env and delegates
+	 * to it. Variables are bound into the env by compilePattern's var_pattern
+	 * case; the stored filter ignores its input and yields the captured value.
+	 *
+	 * @param array $node  Node with 'name' key
+	 * @return Closure(mixed $input, JQEnv $env): Generator  Filter
+	 */
+	private function compileVariable( array $node ): Closure {
+		$name = $node['name'];
+		return static function ( mixed $input, JQEnv $env ) use ( $name ): Generator {
+			$fn = $env->lookup( $name, 0 );
+			if ( $fn === null ) {
+				throw new JQError( '$' . $name . ' is not defined' );
+			}
+			yield from $fn( $input, $env );
 		};
 	}
 
