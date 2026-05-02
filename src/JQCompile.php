@@ -823,9 +823,10 @@ class JQCompile {
 			'%' => JQUtils::modulo( ... ),
 			default => throw new LogicException( 'Unknown operator: ' . $node['op'] ),
 		};
+		// jq evaluates right first (outer loop) then left (inner loop).
 		return static function ( mixed $input, JQEnv $env ) use ( $leftFn, $rightFn, $op ): Generator {
-			foreach ( $leftFn( $input, $env ) as $lv ) {
-				foreach ( $rightFn( $input, $env ) as $rv ) {
+			foreach ( $rightFn( $input, $env ) as $rv ) {
+				foreach ( $leftFn( $input, $env ) as $lv ) {
 					yield $op( $lv, $rv );
 				}
 			}
