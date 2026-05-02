@@ -218,7 +218,7 @@ class JQCompile {
 	 * Compile a def node (def name(params): body; rest).
 	 *
 	 * Value parameters ($x) are desugared at compile time:
-	 *   def f($x): body  →  def f(x): x as $x | body
+	 *   def f($x): body  =>  def f(x): x as $x | body
 	 * so that only filter parameters remain at runtime.
 	 *
 	 * Lexical scoping is achieved via a forward reference ($defEnvRef):
@@ -312,7 +312,10 @@ class JQCompile {
 	private function compileCall( array $node ): Closure {
 		$name   = $node['name'];
 		$arity  = count( $node['args'] );
-		$argFns = array_map( fn ( $arg ) => $this->compileNode( $arg ), $node['args'] );
+		$argFns = array_map(
+			fn ( $arg ) => $this->compileNode( $arg ),
+			$node['args']
+		);
 
 		if ( $arity === 0 ) {
 			return static function ( mixed $input, JQEnv $env ) use ( $name ): Generator {
