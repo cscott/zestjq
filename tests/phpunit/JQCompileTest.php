@@ -4,6 +4,7 @@ declare( strict_types = 1 );
 namespace Wikimedia\Zest\Tests;
 
 use Closure;
+use Throwable;
 use Wikimedia\Zest\IOContext;
 use Wikimedia\Zest\JQCompile;
 use Wikimedia\Zest\JQGrammar;
@@ -41,12 +42,8 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 			1245, 1278, 1306, 1374 =>
 			'Assignment update operators (|=, +=, //=) have bugs with multi-index empty, NaN/Infinity inputs, and alternative update',
 
-// ltrimstr/rtrimstr return null for non-matching strings instead of original
-			1520, 1524 =>
-			'ltrimstr/rtrimstr return null for non-matching inputs instead of the original string',
-
 			// trim/ltrim/rtrim/trimstr not yet implemented
-			1528, 1563, 1569, 1575 =>
+			1563, 1569, 1575 =>
 			'trim/0, ltrim/0, rtrim/0, and trimstr/1 not yet implemented',
 
 			// various error message format differences
@@ -169,9 +166,23 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 	 * @covers \Wikimedia\Zest\JQCompile
 	 */
 	public function testCompile( string $query, string $input, array $expected, Closure $normalizeFn, ?string $skip = null ): void {
-		if ( $skip !== null ) {
+		if ( $skip === null ) {
+			$this->runTest( $query, $input, $expected, $normalizeFn );
+			return;
+		}
+		// In skip mode, we want to verify that the test *fails*, and flag
+		// any "unexpected skip".
+		try {
+			$this->runTest( $query, $input, $expected, $normalizeFn );
+		} catch ( Throwable $e ) {
+			// This is okay, this was expected to fail. Explain why:
 			$this->markTestSkipped( $skip );
 		}
+		// Hm, this shouldn't happen! We should clean up our skip list.
+		$this->fail( 'Test marked to skip, but it unexpectedly passed!' );
+	}
+
+	private function runTest( string $query, string $input, array $expected, Closure $normalizeFn ): void {
 		$input = JQUtils::jsonDecode( $input );
 		$expected = array_map( JQUtils::jsonDecode( ... ), $expected );
 		$g = new JQGrammar;

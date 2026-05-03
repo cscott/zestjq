@@ -118,8 +118,27 @@ composer phan
 
 ### Test coverage
 
-**`tests/JQCompileTest.php`** — Driven by `tests/jq.test`; currently
-runs only some of the tests. Tests marked `fail` are skipped.
+**`tests/JQCompileTest.php`** — Driven by `tests/jq.test`. Tests marked
+`fail` in the upstream file are excluded entirely. Tests with a known
+bug are listed in `skipReason()` and run in a special mode: the test
+body executes normally, and if it **fails** (throws or asserts false)
+the test is marked skipped with the reason string; if it unexpectedly
+**passes**, the test fails with "Test marked to skip, but it
+unexpectedly passed!" — this is intentional, to keep the skip list
+accurate as bugs are fixed.
+
+**Workflow for fixing a bug covered by a skip entry:**
+1. Remove the relevant line numbers from `skipReason()`.
+2. Fix the bug.
+3. Run `vendor/bin/phpunit tests/JQCompileTest.php` to confirm the
+   formerly-skipped tests now pass and no new failures appear.
+4. Commit both the fix and the skip-list update together.
+
+**Workflow when a fix accidentally resolves additional skipped tests:**
+Run the full PHPUnit suite; any skip entry whose test now passes will
+surface as a `FAILURE: Test marked to skip, but it unexpectedly
+passed!`. Remove those entries from `skipReason()` and include the
+cleanup in the same commit as the fix.
 
 **`tests/JQCmdTest.php`** — Hand-written integration tests for the `zestjq` CLI covering edge cases not easily expressed in the jq.test format (negative indices, null container promotion, `deleteAtPath` splice behavior, halt/error exit codes).
 
