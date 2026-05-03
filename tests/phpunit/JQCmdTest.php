@@ -48,6 +48,22 @@ class JQCmdTest extends \PHPUnit\Framework\TestCase {
 		return [ $code, $out, $err ];
 	}
 
+	/**
+	 * Run with -c (compact output) and return each output line decoded as a PHP value.
+	 * @return list<mixed>
+	 */
+	private function runCompact( array $args, string $jsonInput ): array {
+		[ $code, $out, $err ] = $this->runWithJson( [ '-c', ...$args ], $jsonInput );
+		$this->assertSame( 0, $code );
+		$this->assertSame( '', $err );
+		return array_map( json_decode( ... ), array_filter( explode( "\n", $out ) ) );
+	}
+
+	/** Assert that $actualOutput (raw CLI stdout) decodes to the same JSON value as $expectedJson. */
+	private function assertSameJson( string $expectedJson, string $actualOutput ): void {
+		$this->assertEquals( json_decode( $expectedJson ), json_decode( trim( $actualOutput ) ) );
+	}
+
 	// -----------------------------------------------------------------------
 	// Basic evaluation
 	// -----------------------------------------------------------------------
@@ -197,7 +213,7 @@ class JQCmdTest extends \PHPUnit\Framework\TestCase {
 		[ $code, $out, $err ] = $this->runMain( [] );
 		$this->assertSame( 2, $code );
 		$this->assertSame( '', $out );
-		$this->assertSame( "Usage: zestjq [-n] [-r] [--ast] <filter> [file...]\n", $err );
+		$this->assertSame( "Usage: zestjq [-n] [-r] [-c] [--ast] <filter> [file...]\n", $err );
 	}
 
 	public function testInvalidJsonInFile(): void {
@@ -212,31 +228,6 @@ class JQCmdTest extends \PHPUnit\Framework\TestCase {
 		$this->assertSame( 2, $code );
 		$this->assertSame( '', $out );
 		$this->assertSame( "fatal\n", $err );
-	}
-
-	// -----------------------------------------------------------------------
-	// setAtPath negative indices
-	// -----------------------------------------------------------------------
-
-	public static function setAtPathNegativeIndicesProvider(): array {
-		return [
-			'out-of-bounds negative on array' => [
-				'.[-4] |= . + 1', '[1,2,3]', 5, null, "zestjq: Out of bounds negative array index\n",
-			],
-			'negative on null' => [
-				'.[-1] |= . + 1', 'null', 5, null, "zestjq: Out of bounds negative array index\n",
-			],
-			'negative on object' => [
-				'.[-1] |= . + 1', '{}', 5, null, "zestjq: index requires string inputs, got number\n",
-			],
-			'negative on string' => [
-				'.[-1] |= . + 1', '"hello"', 5, null, "zestjq: Cannot index string with number\n",
-			],
-			// Floats are truncated toward zero, matching jq's (int) cast
-			'float truncated toward zero (negative)' => [
-				'.[-1.9] |= . + 10', '[1,2,3]', 0, '[1,2,13]', '',
-			],
-		];
 	}
 
 	// -----------------------------------------------------------------------
@@ -269,7 +260,7 @@ class JQCmdTest extends \PHPUnit\Framework\TestCase {
 		$this->assertSame( $expectedCode, $code );
 		$this->assertSame( $expectedErr, $err );
 		if ( $expectedJsonOut !== null ) {
-			$this->assertEquals( json_decode( $expectedJsonOut ), json_decode( trim( $out ) ) );
+			$this->assertSameJson( $expectedJsonOut, $out );
 		}
 	}
 
@@ -310,7 +301,32 @@ class JQCmdTest extends \PHPUnit\Framework\TestCase {
 		[ $code, $out, $err ] = $this->runWithJson( [ $filter ], $jsonInput );
 		$this->assertSame( 0, $code );
 		$this->assertSame( '', $err );
-		$this->assertEquals( json_decode( $expectedJsonOut ), json_decode( trim( $out ) ) );
+		$this->assertSameJson( $expectedJsonOut, $out );
+	}
+
+	// -----------------------------------------------------------------------
+	// setAtPath negative indices
+	// -----------------------------------------------------------------------
+
+	public static function setAtPathNegativeIndicesProvider(): array {
+		return [
+			'out-of-bounds negative on array' => [
+				'.[-4] |= . + 1', '[1,2,3]', 5, null, "zestjq: Out of bounds negative array index\n",
+			],
+			'negative on null' => [
+				'.[-1] |= . + 1', 'null', 5, null, "zestjq: Out of bounds negative array index\n",
+			],
+			'negative on object' => [
+				'.[-1] |= . + 1', '{}', 5, null, "zestjq: index requires string inputs, got number\n",
+			],
+			'negative on string' => [
+				'.[-1] |= . + 1', '"hello"', 5, null, "zestjq: Cannot index string with number\n",
+			],
+			// Floats are truncated toward zero, matching jq's (int) cast
+			'float truncated toward zero (negative)' => [
+				'.[-1.9] |= . + 10', '[1,2,3]', 0, '[1,2,13]', '',
+			],
+		];
 	}
 
 	/**
@@ -324,8 +340,33 @@ class JQCmdTest extends \PHPUnit\Framework\TestCase {
 		$this->assertSame( $expectedCode, $code );
 		$this->assertSame( $expectedErr, $err );
 		if ( $expectedJsonOut !== null ) {
-			$this->assertEquals( json_decode( $expectedJsonOut ), json_decode( trim( $out ) ) );
+			$this->assertSameJson( $expectedJsonOut, $out );
 		}
+	}
+
+	// -----------------------------------------------------------------------
+	// Multi-path assignment (lhs = rhs where lhs produces multiple paths)
+	// -----------------------------------------------------------------------
+
+	public static function assignMultiPathProvider(): array {
+		return [
+			// .[] produces one path per element; all must be set (from jq.test line 1306)
+			'.[] = 1 sets all elements'      => [ '.[] = 1', '[1,2,3]', [ '[1,1,1]' ] ],
+			// comma expression on lhs produces two paths; both must be set
+			'(.a,.b) = 1 sets both keys'     => [ '(.a,.b) = 1', '{"a":0,"b":0,"c":0}', [ '{"a":1,"b":1,"c":0}' ] ],
+			// multi-value rhs × multi-path lhs: one output per rhs value, all paths set each time
+			'.[] = (1,2) yields two outputs' => [ '.[] = (1,2)', '[0,0,0]', [ '[1,1,1]', '[2,2,2]' ] ],
+		];
+	}
+
+	/**
+	 * @dataProvider assignMultiPathProvider
+	 * @covers \Wikimedia\Zest\JQCompile
+	 */
+	public function testAssignMultiPath( string $filter, string $jsonInput, array $expectedJsonOutputs ): void {
+		$actual = $this->runCompact( [ $filter ], $jsonInput );
+		$expected = array_map( json_decode( ... ), $expectedJsonOutputs );
+		$this->assertEquals( $expected, $actual );
 	}
 
 }

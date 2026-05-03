@@ -1106,8 +1106,7 @@ class JQCompile {
 			foreach ( $rhsFn( $input, $env ) as $newVal ) {
 				$result = $input;
 				foreach ( $pathFn( $input, $pathEnv ) as $item ) {
-					$result = self::setAtPath( $input, $pathEnv->extractPath( $item ), 0, $newVal );
-					break;
+					$result = self::setAtPath( $result, $pathEnv->extractPath( $item ), 0, $newVal );
 				}
 				yield $result;
 			}

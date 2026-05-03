@@ -27,9 +27,10 @@ class JQCmd {
 
 	public static function main( int $argc, array $argv ): int {
 		// Parse flags and positional args (minimal jq-compatible subset)
-		$nullInput = false;
-		$rawOutput = false;
-		$astOutput = false;
+		$nullInput   = false;
+		$rawOutput   = false;
+		$compactOutput = false;
+		$astOutput   = false;
 		$args = [];
 		for ( $i = 1; $i < $argc; $i++ ) {
 			$arg = $argv[$i];
@@ -40,6 +41,8 @@ class JQCmd {
 				$nullInput = true;
 			} elseif ( $arg === '-r' || $arg === '--raw-output' ) {
 				$rawOutput = true;
+			} elseif ( $arg === '-c' || $arg === '--compact-output' ) {
+				$compactOutput = true;
 			} elseif ( $arg === '--ast' ) {
 				$astOutput = true;
 			} elseif ( $arg[0] === '-' ) {
@@ -51,7 +54,7 @@ class JQCmd {
 		}
 
 		if ( count( $args ) < 1 ) {
-			self::err( "Usage: zestjq [-n] [-r] [--ast] <filter> [file...]\n" );
+			self::err( "Usage: zestjq [-n] [-r] [-c] [--ast] <filter> [file...]\n" );
 			return 2;
 		}
 
@@ -74,9 +77,9 @@ class JQCmd {
 		$exitCode = 0;
 		try {
 			if ( $astOutput ) {
-				echo self::encodeOutput( $ast, $rawOutput ) . "\n";
+				echo self::encodeOutput( $ast, $rawOutput, $compactOutput ) . "\n";
 			} elseif ( $nullInput ) {
-				$exitCode = self::runFilter( $filter, null, $rawOutput );
+				$exitCode = self::runFilter( $filter, null, $rawOutput, $compactOutput );
 			} elseif ( count( $files ) > 0 ) {
 				foreach ( $files as $file ) {
 					$raw = file_get_contents( $file );
@@ -92,7 +95,7 @@ class JQCmd {
 						$exitCode = 2;
 						continue;
 					}
-					$exitCode = max( $exitCode, self::runFilter( $filter, $input, $rawOutput ) );
+					$exitCode = max( $exitCode, self::runFilter( $filter, $input, $rawOutput, $compactOutput ) );
 				}
 			} else {
 				$raw = stream_get_contents( STDIN );
@@ -106,7 +109,7 @@ class JQCmd {
 					self::err( "zestjq: invalid JSON in stdin\n" );
 					return 2;
 				}
-				$exitCode = self::runFilter( $filter, $input, $rawOutput );
+				$exitCode = self::runFilter( $filter, $input, $rawOutput, $compactOutput );
 			}
 		} catch ( JQHaltException $e ) {
 			if ( $e->getMessage() !== '' ) {
@@ -118,17 +121,21 @@ class JQCmd {
 		return $exitCode;
 	}
 
-	private static function encodeOutput( mixed $val, bool $rawOutput ): string {
+	private static function encodeOutput( mixed $val, bool $rawOutput, bool $compactOutput ): string {
 		if ( $rawOutput && is_string( $val ) ) {
 			return $val;
 		}
-		return json_encode( $val, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+		$flags = JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE;
+		if ( !$compactOutput ) {
+			$flags |= JSON_PRETTY_PRINT;
+		}
+		return json_encode( $val, $flags );
 	}
 
-	private static function runFilter( Closure $filter, mixed $input, bool $rawOutput ): int {
+	private static function runFilter( Closure $filter, mixed $input, bool $rawOutput, bool $compactOutput ): int {
 		try {
 			foreach ( $filter( $input ) as $output ) {
-				echo self::encodeOutput( $output, $rawOutput ) . "\n";
+				echo self::encodeOutput( $output, $rawOutput, $compactOutput ) . "\n";
 			}
 		} catch ( JQError $e ) {
 			self::err( "zestjq: " . $e->getMessage() . "\n" );
