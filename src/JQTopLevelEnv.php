@@ -233,7 +233,7 @@ class JQTopLevelEnv extends JQEnv {
 			};
 		};
 
-		// Math builtins
+		// Math builtins — integer-rounding functions yield int to match jq semantics
 		$defs['floor/0'] = static function ( mixed $input, JQEnv $env ): Generator {
 			yield (int)floor( JQUtils::checkNumber( 'floor', $input ) );
 		};
@@ -243,11 +243,37 @@ class JQTopLevelEnv extends JQEnv {
 		$defs['round/0'] = static function ( mixed $input, JQEnv $env ): Generator {
 			yield (int)round( JQUtils::checkNumber( 'round', $input ) );
 		};
-		$defs['sqrt/0'] = self::mathFn( 'sqrt' );
-		$defs['fabs/0'] = self::mathFn( 'fabs', abs( ... ) );
-		$defs['sin/0']  = self::mathFn( 'sin' );
-		$defs['cos/0']  = self::mathFn( 'cos' );
-		$defs['atan/0'] = self::mathFn( 'atan' );
+		// Direct PHP function equivalents
+		$defs['acos/0']  = self::mathFn( 'acos' );
+		$defs['acosh/0'] = self::mathFn( 'acosh' );
+		$defs['asin/0']  = self::mathFn( 'asin' );
+		$defs['asinh/0'] = self::mathFn( 'asinh' );
+		$defs['atan/0']  = self::mathFn( 'atan' );
+		$defs['atanh/0'] = self::mathFn( 'atanh' );
+		$defs['cos/0']   = self::mathFn( 'cos' );
+		$defs['cosh/0']  = self::mathFn( 'cosh' );
+		$defs['exp/0']   = self::mathFn( 'exp' );
+		$defs['expm1/0'] = self::mathFn( 'expm1' );
+		$defs['fabs/0']  = self::mathFn( 'fabs', abs( ... ) );
+		$defs['log/0']   = self::mathFn( 'log' );
+		$defs['log10/0'] = self::mathFn( 'log10' );
+		$defs['log1p/0'] = self::mathFn( 'log1p' );
+		$defs['sin/0']   = self::mathFn( 'sin' );
+		$defs['sinh/0']  = self::mathFn( 'sinh' );
+		$defs['sqrt/0']  = self::mathFn( 'sqrt' );
+		$defs['tan/0']   = self::mathFn( 'tan' );
+		$defs['tanh/0']  = self::mathFn( 'tanh' );
+		// Custom callables for functions with no direct PHP equivalent
+		$defs['cbrt/0']      = self::mathFn( 'cbrt', static fn ( $x ) => $x >= 0 ? $x ** ( 1 / 3 ) : -( ( -$x ) ** ( 1 / 3 ) ) );
+		$defs['exp2/0']      = self::mathFn( 'exp2', static fn ( $x ) => 2 ** $x );
+		$defs['exp10/0']     = self::mathFn( 'exp10', static fn ( $x ) => 10 ** $x );
+		$defs['log2/0']      = self::mathFn( 'log2', static fn ( $x ) => log( $x, 2 ) );
+		$defs['nearbyint/0'] = self::mathFn( 'nearbyint', static fn ( $x ) => round( $x, 0, PHP_ROUND_HALF_EVEN ) );
+		$defs['rint/0']      = self::mathFn( 'rint', static fn ( $x ) => round( $x, 0, PHP_ROUND_HALF_EVEN ) );
+		$defs['trunc/0']     = self::mathFn( 'trunc', static fn ( $x ) => $x < 0 ? ceil( $x ) : floor( $x ) );
+		// Omitted — no PHP equivalent: erf, erfc, tgamma/gamma, lgamma,
+		// j0, j1 (Bessel functions of the first kind), y0, y1 (second kind),
+		// logb (IEEE exponent extraction), significand (IEEE significand).
 
 		// Special float values and predicates
 		$defs['nan/0'] = static function ( mixed $input, JQEnv $env ): Generator {
