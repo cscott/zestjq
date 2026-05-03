@@ -227,10 +227,10 @@ class JQCmdTest extends \PHPUnit\Framework\TestCase {
 				'.[-1] |= . + 1', 'null', 5, null, "zestjq: Out of bounds negative array index\n",
 			],
 			'negative on object' => [
-				'.[-1] |= . + 1', '{}', 5, null, "zestjq: setAtPath requires an array input, got object\n",
+				'.[-1] |= . + 1', '{}', 5, null, "zestjq: index requires string inputs, got number\n",
 			],
 			'negative on string' => [
-				'.[-1] |= . + 1', '"hello"', 5, null, "zestjq: setAtPath requires an array input, got string\n",
+				'.[-1] |= . + 1', '"hello"', 5, null, "zestjq: Cannot index string with number\n",
 			],
 			// Floats are truncated toward zero, matching jq's (int) cast
 			'float truncated toward zero (negative)' => [

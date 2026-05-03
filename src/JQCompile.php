@@ -1098,78 +1098,6 @@ class JQCompile {
 	}
 
 	/**
-	 * Compile a path expression into a Closure that yields path arrays.
-	 *
-	 * Each yielded value is an int|string[] describing one slot in the input,
-	 * e.g. ["a", 0, "b"] for .a[0].b.  Used by compileSetter and
-	 * compilePathUpdate, and will underpin path()/getpath/setpath builtins.
-	 *
-	 * @param array $node AST path node
-	 * @return Closure(mixed,JQEnv):Generator yields int|string[]
-	 */
-	private function compilePath( array $node ): Closure {
-		switch ( $node['type'] ) {
-			case 'identity':
-				return static function ( mixed $input, JQEnv $env ): Generator {
-					yield [];
-				};
-
-			case 'field':
-				$innerFn = $this->compilePath( $node['expr'] );
-				$name    = $node['name'];
-				return static function ( mixed $input, JQEnv $env ) use ( $innerFn, $name ): Generator {
-					foreach ( $innerFn( $input, $env ) as $prefix ) {
-						yield [ ...$prefix, $name ];
-					}
-				};
-
-			case 'index':
-				$innerFn = $this->compilePath( $node['expr'] ?? [ 'type' => 'identity' ] );
-				$keyFn   = $this->compileNode( $node['key'] );
-				return static function ( mixed $input, JQEnv $env ) use ( $innerFn, $keyFn ): Generator {
-					foreach ( $keyFn( $input, $env ) as $key ) {
-						if ( JQUtils::isNumber( $key ) ) {
-							$key = (int)$key;
-						}
-						foreach ( $innerFn( $input, $env ) as $prefix ) {
-							yield [ ...$prefix, $key ];
-						}
-					}
-				};
-
-			case 'iter':
-				$innerExprNode = $node['expr'] ?? [ 'type' => 'identity' ];
-				$innerPathFn   = $this->compilePath( $innerExprNode );
-				$innerReaderFn = $this->compileNode( $innerExprNode );
-				return static function ( mixed $input, JQEnv $env )
-					use ( $innerPathFn, $innerReaderFn ): Generator {
-					$container = null;
-					foreach ( $innerReaderFn( $input, $env ) as $v ) {
-						$container = $v;
-						break;
-					}
-					foreach ( $innerPathFn( $input, $env ) as $prefix ) {
-						if ( is_array( $container ) ) {
-							JQUtils::assertIsList( 'path', $container );
-							for ( $i = 0; $i < count( $container ); $i++ ) {
-								yield [ ...$prefix, $i ];
-							}
-						} elseif ( is_object( $container ) ) {
-							foreach ( array_keys( get_object_vars( $container ) ) as $k ) {
-								yield [ ...$prefix, $k ];
-							}
-						} elseif ( $container !== null ) {
-							throw new JQError( JQUtils::typeName( $container ) . ' is not iterable' );
-						}
-					}
-				};
-
-			default:
-				throw new LogicException( 'compilePath: not yet implemented for node type: ' . $node['type'] );
-		}
-	}
-
-	/**
 	 * Compile a path expression into a setter Closure.
 	 *
 	 * The returned Closure has signature Closure(mixed $container, mixed $newVal, JQEnv): mixed
@@ -1179,10 +1107,11 @@ class JQCompile {
 	 * @return Closure(mixed,mixed,JQEnv):mixed
 	 */
 	private function compilePathSetter( array $pathNode ): Closure {
-		$pathFn = $this->compilePath( $pathNode );
+		$pathFn = $this->compileNode( $pathNode );
 		return static function ( mixed $container, mixed $newVal, JQEnv $env ) use ( $pathFn ): mixed {
-			foreach ( $pathFn( $container, $env ) as $path ) {
-				return self::setAtPath( $container, $path, 0, $newVal );
+			$pathEnv = $env->enterPathMode();
+			foreach ( $pathFn( $container, $pathEnv ) as $item ) {
+				return self::setAtPath( $container, $pathEnv->extractPath( $item ), 0, $newVal );
 			}
 			return $container;
 		};
@@ -1199,10 +1128,12 @@ class JQCompile {
 	 * @return Closure(mixed,JQEnv):Generator a Filter
 	 */
 	private function compilePathUpdate( array $pathNode, Closure $updateFn ): Closure {
-		$pathFn = $this->compilePath( $pathNode );
+		$pathFn = $this->compileNode( $pathNode );
 		return static function ( mixed $input, JQEnv $env ) use ( $pathFn, $updateFn ): Generator {
+			$pathEnv  = $env->enterPathMode();
 			$toDelete = [];
-			foreach ( $pathFn( $input, $env ) as $path ) {
+			foreach ( $pathFn( $input, $pathEnv ) as $item ) {
+				$path      = $pathEnv->extractPath( $item );
 				$current   = self::getAtPath( $input, $path, 0 );
 				$hasOutput = false;
 				foreach ( $updateFn( $current, $env ) as $newVal ) {
@@ -1300,6 +1231,18 @@ class JQCompile {
 				$container[$index] ?? null, $path, $offset, $newVal
 			);
 			return $newArr;
+		}
+		// Slice-path key: (object)['start' => ..., 'end' => ...] produced by
+		// compileSlice in path mode.  Splices the replacement array into position.
+		if ( is_object( $key ) && is_array( $container ) ) {
+			JQUtils::assertIsList( 'setAtPath', $container );
+			$len  = count( $container );
+			$f    = JQUtils::normalizeSliceIdx( $key->start ?? null, $len, 0 );
+			$t    = JQUtils::normalizeSliceIdx( $key->end ?? null, $len, $len );
+			$repl = is_array( $newVal ) ? $newVal : [];
+			$newArr = $container;
+			array_splice( $newArr, $f, max( 0, $t - $f ), $repl );
+			return array_values( $newArr );
 		}
 		return $container;
 	}
