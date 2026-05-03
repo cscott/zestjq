@@ -5,6 +5,7 @@ namespace Wikimedia\Zest;
 
 use Closure;
 use Generator;
+use LogicException;
 
 /**
  * Immutable lexical environment for JQ evaluation.
@@ -24,13 +25,6 @@ class JQEnv {
 
 	private static ?JQEnv $stdEnv = null;
 
-	/** Whether this env is operating in path-collection mode. */
-	private bool $pathMode = false;
-	/** True when this env was created by appendPath() (has a path key). */
-	private bool $hasPathKey = false;
-	/** The single path segment stored at this level (valid when $hasPathKey). */
-	private mixed $pathKey = null;
-
 	/**
 	 * @param ?JQEnv $parent Parent binding
 	 * @param IOContext $io Shared I/O context (same object across all derived envs)
@@ -38,9 +32,9 @@ class JQEnv {
 	 *   e.g. "map/1", "length/0", "foo::bar/2"
 	 */
 	public function __construct(
-		private readonly ?JQEnv $parent,
+		protected readonly ?JQEnv $parent,
 		public readonly IOContext $io,
-		private array $defs = [],
+		protected array $defs = [],
 	) {
 	}
 
@@ -109,19 +103,19 @@ class JQEnv {
 
 	/** Returns true when structural ops should yield [pathEnv, value] pairs. */
 	public function isPathMode(): bool {
-		return $this->pathMode;
+		return false;
 	}
 
 	/**
-	 * Return a new env that is the root of a fresh path-collection context.
-	 * The returned env has $pathMode=true and an empty path; $this becomes
-	 * the parent for variable lookups but is NOT itself in path mode, so
-	 * getPath() stops here.
+	 * Return a new env that is the root of a fresh path-collection
+	 * context.  The returned env returns true from ::isPathMode() and
+	 * has an empty path; $this becomes the parent for variable
+	 * lookups but is NOT itself in path mode, so getPath() stops
+	 * here.
 	 */
-	public function enterPathMode(): self {
-		$new = new self( $this, $this->io, [] );
-		$new->pathMode = true;
-		return $new;
+	public function enterPathMode(): JQPathEnv {
+		// use 'false' as a sentinel at the start of the path
+		return new JQPathEnv( $this, $this->io, [], false );
 	}
 
 	/**
@@ -130,15 +124,10 @@ class JQEnv {
 	 * In path mode returns a new env whose $pathKey is $key and whose parent
 	 * is $this; getPath() will prepend $this's path to $key.
 	 */
+	// @phan-suppress-next-line PhanUnusedPublicMethodParameter
 	public function appendPath( mixed $key ): self {
-		if ( !$this->pathMode ) {
-			return $this;
-		}
-		$new = new self( $this, $this->io, [] );
-		$new->pathMode   = true;
-		$new->hasPathKey = true;
-		$new->pathKey    = $key;
-		return $new;
+		// Not in path mode, throw away the key
+		return $this;
 	}
 
 	/**
@@ -147,21 +136,7 @@ class JQEnv {
 	 * In normal mode returns $this unchanged (fast path, no allocation).
 	 */
 	public function leavePathMode(): self {
-		if ( !$this->pathMode ) {
-			return $this;
-		}
-		$new = new self( $this, $this->io, [] );
-		return $new;
-	}
-
-	/** Collect path segments in reverse order to avoid O(N²) array spreading. */
-	private function collectReverse( array &$out ): void {
-		if ( $this->hasPathKey ) {
-			$out[] = $this->pathKey;
-		}
-		if ( $this->parent?->pathMode ) {
-			$this->parent->collectReverse( $out );
-		}
+		return $this;
 	}
 
 	/**
@@ -169,9 +144,7 @@ class JQEnv {
 	 * Segments are gathered bottom-up (O(N) push) and then reversed once.
 	 */
 	public function getPath(): array {
-		$r = [];
-		$this->collectReverse( $r );
-		return array_reverse( $r );
+		throw new LogicException( 'not in path mode' );
 	}
 
 	/**
@@ -182,10 +155,7 @@ class JQEnv {
 	 * Used at the yield site in every structural compile* method.
 	 */
 	public function maybeWithPath( mixed $value ): mixed {
-		if ( !$this->pathMode ) {
-			return $value;
-		}
-		return [ $this, $value ];
+		return $value;
 	}
 
 	/**
@@ -198,10 +168,7 @@ class JQEnv {
 	 * Used in compilePipe to thread the path env into the right-hand side.
 	 */
 	public function maybeUnwrapPath( mixed $item ): array {
-		if ( !$this->pathMode ) {
-			return [ $this, $item ];
-		}
-		return $item;
+		return [ $this, $item ];
 	}
 
 	/**

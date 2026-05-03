@@ -784,7 +784,9 @@ class JQCompile {
 			foreach ( $exprFn( $input, $env ) as $item ) {
 				[ $baseEnv, $base ] = $env->maybeUnwrapPath( $item );
 				// The key expression sees the original $input, not $base.
-				// Always evaluated in normal (non-path) mode: the key determines
+				// e.g. in .a[.b], .b is evaluated against the outer input,
+				// not against the result of .a.  The key expression is also
+				// always evaluated in normal (non-path) mode: the key determines
 				// which slot to access; it is not itself a path to collect.
 				foreach ( $keyFn( $input, $env->leavePathMode() ) as $key ) {
 					if ( $base === null ) {
@@ -1045,15 +1047,11 @@ class JQCompile {
 				$normalEnv = $env->leavePathMode();
 				foreach ( $fromFn( $input, $normalEnv ) as $from ) {
 					foreach ( $toFn( $input, $normalEnv ) as $to ) {
-						if ( $env->isPathMode() ) {
-							// In path mode yield the slice-path key alongside the
-							// sliced value so that downstream ops (and delpaths) work.
-							$sliceKey = (object)[ 'start' => $from, 'end' => $to ];
-							foreach ( JQUtils::slice( $base, $from, $to, $opt ) as $sliceVal ) {
-								yield $baseEnv->appendPath( $sliceKey )->maybeWithPath( $sliceVal );
-							}
-						} else {
-							yield from JQUtils::slice( $base, $from, $to, $opt );
+						// In path mode yield the slice-path key alongside the
+						// sliced value so that downstream ops (and delpaths) work.
+						$sliceKey = (object)[ 'start' => $from, 'end' => $to ];
+						foreach ( JQUtils::slice( $base, $from, $to, $opt ) as $sliceVal ) {
+							yield $baseEnv->appendPath( $sliceKey )->maybeWithPath( $sliceVal );
 						}
 					}
 				}
