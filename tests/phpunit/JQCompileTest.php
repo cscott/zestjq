@@ -55,10 +55,6 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 			1625, 1629 =>
 			'String repetition with fractional or NaN multiplier differs from jq behavior',
 
-			// sort_by/1, group_by/1, min_by/1, max_by/1 not yet implemented
-			1677, 1693, 1697, 2271, 2275 =>
-			'sort_by/1, group_by/1, min_by/1, max_by/1 not yet implemented (_sort_by_impl etc. missing)',
-
 			// bsearch/1 not yet implemented
 			1827, 1835, 1839 =>
 			'bsearch/1 not yet implemented',
@@ -69,7 +65,7 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 			'Date/time builtins not yet implemented (gmtime, mktime, strftime, strptime, strflocaltime)',
 
 			// have_decnum/0 not implemented; tests require arbitrary-precision decimal support
-			2014, 2196, 2200, 2204, 2224, 2228, 2232 =>
+			2014, 2196, 2200, 2204, 2224, 2228, 2232, 2271, 2275 =>
 			'have_decnum/0 not implemented; tests require arbitrary-precision decimal number support',
 
 			// arithmetic on integers outside IEEE 754 safe range

@@ -443,6 +443,104 @@ class JQTopLevelEnv extends JQEnv {
 			yield $best;
 		};
 
+		// _sort_by_impl/1 — core of sort_by/1.
+		// Called as _sort_by_impl(map([f])): receives input array and a pre-mapped
+		// array of key-arrays (one per element); returns input sorted by those keys.
+		$defs['_sort_by_impl/1'] = static function ( array $argFns ): Closure {
+			return static function ( mixed $input, JQEnv $env ) use ( $argFns ): Generator {
+				$arr  = JQUtils::checkArray( '_sort_by_impl', $input );
+				$keys = self::firstResult( $argFns[0], $input, $env );
+				$keys = JQUtils::checkArray( '_sort_by_impl', $keys );
+				// pair each value with its key, sort by key, extract values
+				$pairs = array_map( null, $arr, $keys );
+				usort( $pairs, static fn ( $a, $b ) => JQUtils::compare( $a[1], $b[1] ) );
+				yield array_column( $pairs, 0 );
+			};
+		};
+
+		// _unique_by_impl/1 — core of unique_by/1.
+		// Sort by keys then keep only the first element of each run of equal keys.
+		$defs['_unique_by_impl/1'] = static function ( array $argFns ): Closure {
+			return static function ( mixed $input, JQEnv $env ) use ( $argFns ): Generator {
+				$arr  = JQUtils::checkArray( '_unique_by_impl', $input );
+				$keys = self::firstResult( $argFns[0], $input, $env );
+				$keys = JQUtils::checkArray( '_unique_by_impl', $keys );
+				$pairs = array_map( null, $arr, $keys );
+				usort( $pairs, static fn ( $a, $b ) => JQUtils::compare( $a[1], $b[1] ) );
+				$result  = [];
+				$prevKey = null;
+				foreach ( $pairs as [ $val, $key ] ) {
+					if ( $result === [] || JQUtils::compare( $key, $prevKey ) !== 0 ) {
+						$result[] = $val;
+						$prevKey  = $key;
+					}
+				}
+				yield $result;
+			};
+		};
+
+		// _min_by_impl/1 and _max_by_impl/1 — cores of min_by/1 and max_by/1.
+		// Empty array yields null; otherwise a single linear scan finds the extremum.
+		$defs['_min_by_impl/1'] = static function ( array $argFns ): Closure {
+			return static function ( mixed $input, JQEnv $env ) use ( $argFns ): Generator {
+				$arr  = JQUtils::checkArray( '_min_by_impl', $input );
+				$keys = self::firstResult( $argFns[0], $input, $env );
+				$keys = JQUtils::checkArray( '_min_by_impl', $keys );
+				$bestVal = $arr[0] ?? null;
+				$bestKey = $keys[0] ?? null;
+				for ( $i = 1, $n = count( $arr ); $i < $n; $i++ ) {
+					if ( JQUtils::compare( $keys[$i], $bestKey ) < 0 ) {
+						$bestVal = $arr[$i];
+						$bestKey = $keys[$i];
+					}
+				}
+				yield $bestVal;
+			};
+		};
+		$defs['_max_by_impl/1'] = static function ( array $argFns ): Closure {
+			return static function ( mixed $input, JQEnv $env ) use ( $argFns ): Generator {
+				$arr  = JQUtils::checkArray( '_max_by_impl', $input );
+				$keys = self::firstResult( $argFns[0], $input, $env );
+				$keys = JQUtils::checkArray( '_max_by_impl', $keys );
+				$bestVal = $arr[0] ?? null;
+				$bestKey = $keys[0] ?? null;
+				// >= 0: on ties, keep the last element (matches jq's _max_by_impl behavior)
+				for ( $i = 1, $n = count( $arr ); $i < $n; $i++ ) {
+					if ( JQUtils::compare( $keys[$i], $bestKey ) >= 0 ) {
+						$bestVal = $arr[$i];
+						$bestKey = $keys[$i];
+					}
+				}
+				yield $bestVal;
+			};
+		};
+
+		// _group_by_impl/1 — core of group_by/1.
+		// Same calling convention as _sort_by_impl; returns array of groups.
+		$defs['_group_by_impl/1'] = static function ( array $argFns ): Closure {
+			return static function ( mixed $input, JQEnv $env ) use ( $argFns ): Generator {
+				$arr  = JQUtils::checkArray( '_group_by_impl', $input );
+				$keys = self::firstResult( $argFns[0], $input, $env );
+				$keys = JQUtils::checkArray( '_group_by_impl', $keys );
+				$pairs = array_map( null, $arr, $keys );
+				usort( $pairs, static fn ( $a, $b ) => JQUtils::compare( $a[1], $b[1] ) );
+				$groups     = [];
+				$curGroup   = [ $pairs[0][0] ];
+				$curKey     = $pairs[0][1];
+				for ( $i = 1, $n = count( $pairs ); $i < $n; $i++ ) {
+					if ( JQUtils::compare( $pairs[$i][1], $curKey ) === 0 ) {
+						$curGroup[] = $pairs[$i][0];
+					} else {
+						$groups[] = $curGroup;
+						$curGroup = [ $pairs[$i][0] ];
+						$curKey   = $pairs[$i][1];
+					}
+				}
+				$groups[] = $curGroup;
+				yield $groups;
+			};
+		};
+
 		// _strindices/1 — array of codepoint positions where needle occurs in input string
 		$defs['_strindices/1'] = static function ( array $argFns ): Closure {
 			$needleFn = $argFns[0];
@@ -479,6 +577,14 @@ class JQTopLevelEnv extends JQEnv {
 		};
 
 		return $defs;
+	}
+
+	/** Drive $fn($input, $env) and return its first yielded value. */
+	private static function firstResult( Closure $fn, mixed $input, JQEnv $env ): mixed {
+		foreach ( $fn( $input, $env ) as $v ) {
+			return $v;
+		}
+		return null;
 	}
 
 	/**
