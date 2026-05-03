@@ -129,7 +129,10 @@ class JQCmd {
 		if ( !$compactOutput ) {
 			$flags |= JSON_PRETTY_PRINT;
 		}
-		return json_encode( $val, $flags );
+		// Match the JavaScript behavior of converting NaN/INF to `null`
+		$flags |= JSON_PARTIAL_OUTPUT_ON_ERROR;
+		$result = json_encode( $val, $flags );
+		return ( $result === false ) ? '<json_encode failed>' : $result;
 	}
 
 	private static function runFilter( Closure $filter, mixed $input, bool $rawOutput, bool $compactOutput ): int {

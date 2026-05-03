@@ -3,6 +3,7 @@ declare( strict_types = 1 );
 
 namespace Wikimedia\Zest\Tests;
 
+use Error;
 use Wikimedia\Zest\JQGrammar;
 
 /**
@@ -129,7 +130,7 @@ class JQGrammarTest extends \PHPUnit\Framework\TestCase {
 			$this->assertArrayHasKey( 'type', $ast );
 		} catch ( \Wikimedia\WikiPEG\SyntaxError $e ) {
 			// Include line number information
-			throw new \Error( json_encode( $e ) );
+			throw new Error( json_encode( $e ) );
 		}
 	}
 

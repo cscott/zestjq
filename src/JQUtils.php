@@ -483,7 +483,8 @@ class JQUtils {
 	 * `json_encode("\xFF")`.)
 	 */
 	public static function jsonEncode( mixed $val ): string {
-		return json_encode( $val, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE ) ?: 'null';
+		$result = json_encode( $val, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+		return $result === false ? 'null' : $result;
 	}
 
 	// -----------------------------------------------------------------------
@@ -560,7 +561,8 @@ class JQUtils {
 		$cols = [];
 		foreach ( $val as $item ) {
 			if ( self::isNumber( $item ) ) {
-				$cols[] = json_encode( $item ) ?: '0';
+				$val = json_encode( $item );
+				$cols[] = $val === false ? '0' : $val;
 			} elseif ( is_string( $item ) ) {
 				$cols[] = '"' . str_replace( '"', '""', $item ) . '"';
 			} elseif ( $item === true ) {
@@ -585,7 +587,8 @@ class JQUtils {
 		$cols = [];
 		foreach ( $val as $item ) {
 			if ( self::isNumber( $item ) ) {
-				$cols[] = json_encode( $item ) ?: '0';
+				$val = json_encode( $item );
+				$cols[] = $val === false ? '0' : $val;
 			} elseif ( is_string( $item ) ) {
 				$cols[] = str_replace(
 					[ '\\', "\t", "\n", "\r" ],
