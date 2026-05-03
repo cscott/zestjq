@@ -444,12 +444,12 @@ class JQCompile {
 		}
 		$exprFn = $this->compileNode( $node['expr'] );
 		return static function ( mixed $input, JQEnv $env ) use ( $exprFn ): Generator {
-			// Array construction always produces a new value, never a path
-			// extension, so leave path mode before evaluating the body.
+			// Array construction always produces a new value, never a path extension.
 			$items = [];
 			foreach ( $exprFn( $input, $env->leavePathMode() ) as $val ) {
 				$items[] = $val;
 			}
+			JQUtils::assertNotPath( $items, $env );
 			yield $items;
 		};
 	}
@@ -492,7 +492,9 @@ class JQCompile {
 			}
 			foreach ( $objects as $obj ) {
 				// Convert constructed arrays into objects
-				yield (object)$obj;
+				$result = (object)$obj;
+				JQUtils::assertNotPath( $result, $env );
+				yield $result;
 			}
 		};
 	}

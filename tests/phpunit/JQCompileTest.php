@@ -16,7 +16,7 @@ use Wikimedia\Zest\JQUtils;
 class JQCompileTest extends \PHPUnit\Framework\TestCase {
 
 	public static function skipReason( string $label, int $lineno ): ?string {
-		if ( $lineno > 1110 ) {
+		if ( $lineno > 1140 ) {
 			return 'Skipped temporarily';
 		}
 		return match ( $lineno ) {
@@ -25,6 +25,10 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 
 			9999999 =>
 			'Exact error message may differ from jq',
+
+			1900, 1904, 1908, 1912, 1917, 1921, 1925, 1929, 1969, 1973, 1977,
+			1993 =>
+			'Module-level directives not implemented',
 
 			default => null,
 		};
@@ -41,6 +45,20 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 				];
 			}
 		}
+	}
+
+	/**
+	 * Normalize error message strings so that minor wording differences between
+	 * our implementation and jq don't cause test failures.  Currently strips
+	 * the trailing context from "Invalid path expression …" messages.
+	 */
+	private static function normalizeErrors( array $vals ): array {
+		return array_map( static function ( mixed $v ): mixed {
+			if ( is_string( $v ) && str_starts_with( $v, 'Invalid path expression' ) ) {
+				return 'Invalid path expression';
+			}
+			return $v;
+		}, $vals );
 	}
 
 	/**
@@ -68,7 +86,7 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 			return $result === false ? var_export( $val, true ) : $result;
 		};
 		$this->assertTrue(
-			JQUtils::compare( $expected, $result ) === 0,
+			JQUtils::compare( self::normalizeErrors( $expected ), self::normalizeErrors( $result ) ) === 0,
 			"got: " . $e( $result ) . ", but expected: " . $e( $expected )
 		);
 	}

@@ -453,9 +453,9 @@ class JQUtils {
 	 * Add this to compile* methods that cannot produce valid path outputs
 	 * (literals, arithmetic, object/array constructors, etc.).
 	 */
-	public static function assertNotPath( string $who, JQEnv $env ): void {
+	public static function assertNotPath( mixed $val, JQEnv $env ): void {
 		if ( $env->isPathMode() ) {
-			throw new JQError( "not a valid path expression: {$who}" );
+			throw new JQError( "Invalid path expression with result " . self::jsonEncode( $val ) );
 		}
 	}
 
