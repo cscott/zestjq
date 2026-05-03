@@ -406,4 +406,26 @@ class JQCmdTest extends \PHPUnit\Framework\TestCase {
 		$this->assertEquals( $expected, $actual );
 	}
 
+	/**
+	 * Verify that trim/ltrim/rtrim strip exactly the Unicode whitespace
+	 * characters defined by jq's jvp_codepoint_is_whitespace():
+	 *   U+0009–U+000D, U+0020, U+0085, U+00A0, U+1680,
+	 *   U+2000–U+200A, U+2028, U+2029, U+202F, U+205F, U+3000
+	 * (notably NOT U+0000 NUL, which PHP's trim() would strip but jq does not).
+	 *
+	 * @covers \Wikimedia\Zest\JQTopLevelEnv
+	 */
+	public function testTrimUnicodeWhitespace(): void {
+		// One copy of every character in jvp_codepoint_is_whitespace, in order.
+		$ws = "\u{0009}\u{000A}\u{000B}\u{000C}\u{000D}\u{0020}"
+			. "\u{0085}\u{00A0}\u{1680}"
+			. "\u{2000}\u{2001}\u{2002}\u{2003}\u{2004}\u{2005}"
+			. "\u{2006}\u{2007}\u{2008}\u{2009}\u{200A}"
+			. "\u{2028}\u{2029}\u{202F}\u{205F}\u{3000}";
+		$input = json_encode( $ws . 'x' . $ws );
+		$this->assertEquals( [ 'x' ],        $this->runCompact( [ 'trim' ],  $input ) );
+		$this->assertEquals( [ 'x' . $ws ],  $this->runCompact( [ 'ltrim' ], $input ) );
+		$this->assertEquals( [ $ws . 'x' ],  $this->runCompact( [ 'rtrim' ], $input ) );
+	}
+
 }

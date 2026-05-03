@@ -42,11 +42,7 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 			1245, 1278, 1306, 1374 =>
 			'Assignment update operators (|=, +=, //=) have bugs with multi-index empty, NaN/Infinity inputs, and alternative update',
 
-			// trim/ltrim/rtrim/trimstr not yet implemented
-			1563, 1569, 1575 =>
-			'trim/0, ltrim/0, rtrim/0, and trimstr/1 not yet implemented',
-
-			// various error message format differences
+// various error message format differences
 			1448, 1481, 1553, 1557, 1997, 2001, 2005, 2034, 2038, 2058, 2062,
 			2411, 2487, 2498, 2516, 2523 =>
 			'Error message format differs from jq',
