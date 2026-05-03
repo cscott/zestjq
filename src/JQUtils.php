@@ -440,12 +440,23 @@ class JQUtils {
 		}
 	}
 
-	private static function normalizeSliceIdx( mixed $idx, int $len, int $default ): int {
+	public static function normalizeSliceIdx( mixed $idx, int $len, int $default ): int {
 		$i = (int)self::checkNumber( 'slice', $idx ?? $default );
 		if ( $i < 0 ) {
 			$i += $len;
 		}
 		return min( max( 0, $i ), $len );
+	}
+
+	/**
+	 * Throw a JQError when called inside a path-expression context.
+	 * Add this to compile* methods that cannot produce valid path outputs
+	 * (literals, arithmetic, object/array constructors, etc.).
+	 */
+	public static function assertNotPath( string $who, JQEnv $env ): void {
+		if ( $env->isPathMode() ) {
+			throw new JQError( "not a valid path expression: {$who}" );
+		}
 	}
 
 	// -----------------------------------------------------------------------

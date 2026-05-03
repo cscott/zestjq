@@ -13,10 +13,23 @@ use Generator;
  * instance rather than mutating, so a base env built from builtin.jq can be
  * shared safely across many independent evaluations. The IOContext object is
  * shared by reference across all envs derived from a common root.
+ *
+ * Path mode: when $pathMode is true, structural ops (field, index, iter, etc.)
+ * yield [JQEnv $pathEnv, mixed $value] pairs instead of bare values. $pathEnv
+ * carries the path accumulated so far as a linked chain of tail segments;
+ * getPath() walks up the chain and reconstructs the full array once, at the
+ * point where path/1 reads it.
  */
 class JQEnv {
 
 	private static ?JQEnv $stdEnv = null;
+
+	/** Whether this env is operating in path-collection mode. */
+	private bool $pathMode = false;
+	/** True when this env was created by appendPath() (has a path key). */
+	private bool $hasPathKey = false;
+	/** The single path segment stored at this level (valid when $hasPathKey). */
+	private mixed $pathKey = null;
 
 	/**
 	 * @param ?JQEnv $parent Parent binding
@@ -88,6 +101,116 @@ class JQEnv {
 			}
 		}
 		throw new \RuntimeException( __METHOD__ . ': $__env__ was not yielded' );
+	}
+
+	// -----------------------------------------------------------------------
+	// Path mode
+	// -----------------------------------------------------------------------
+
+	/** Returns true when structural ops should yield [pathEnv, value] pairs. */
+	public function isPathMode(): bool {
+		return $this->pathMode;
+	}
+
+	/**
+	 * Return a new env that is the root of a fresh path-collection context.
+	 * The returned env has $pathMode=true and an empty path; $this becomes
+	 * the parent for variable lookups but is NOT itself in path mode, so
+	 * getPath() stops here.
+	 */
+	public function enterPathMode(): self {
+		$new = new self( $this, $this->io, [] );
+		$new->pathMode = true;
+		return $new;
+	}
+
+	/**
+	 * Extend the current path by one key.
+	 * In normal mode returns $this unchanged (fast path, no allocation).
+	 * In path mode returns a new env whose $pathKey is $key and whose parent
+	 * is $this; getPath() will prepend $this's path to $key.
+	 */
+	public function appendPath( mixed $key ): self {
+		if ( !$this->pathMode ) {
+			return $this;
+		}
+		$new = new self( $this, $this->io, [] );
+		$new->pathMode   = true;
+		$new->hasPathKey = true;
+		$new->pathKey    = $key;
+		return $new;
+	}
+
+	/**
+	 * Return an env with path mode disabled (for evaluating conditions and
+	 * key expressions that must not themselves produce path-mode outputs).
+	 * In normal mode returns $this unchanged (fast path, no allocation).
+	 */
+	public function leavePathMode(): self {
+		if ( !$this->pathMode ) {
+			return $this;
+		}
+		$new = new self( $this, $this->io, [] );
+		return $new;
+	}
+
+	/** Collect path segments in reverse order to avoid O(N²) array spreading. */
+	private function collectReverse( array &$out ): void {
+		if ( $this->hasPathKey ) {
+			$out[] = $this->pathKey;
+		}
+		if ( $this->parent?->pathMode ) {
+			$this->parent->collectReverse( $out );
+		}
+	}
+
+	/**
+	 * Reconstruct the full path array for this env.
+	 * Segments are gathered bottom-up (O(N) push) and then reversed once.
+	 */
+	public function getPath(): array {
+		$r = [];
+		$this->collectReverse( $r );
+		return array_reverse( $r );
+	}
+
+	/**
+	 * Wrap $value with path context when in path mode.
+	 * Normal mode: returns $value unchanged.
+	 * Path mode:   returns [$this, $value].
+	 *
+	 * Used at the yield site in every structural compile* method.
+	 */
+	public function maybeWithPath( mixed $value ): mixed {
+		if ( !$this->pathMode ) {
+			return $value;
+		}
+		return [ $this, $value ];
+	}
+
+	/**
+	 * Unwrap a potentially path-wrapped generator output.
+	 * Always returns [JQEnv $nextEnv, mixed $value].
+	 * Normal mode: [$this, $item]  (identity; no allocation avoided here for
+	 *              uniformity — hot-path callers may add an isPathMode() guard).
+	 * Path mode:   [$item[0], $item[1]]  (unwraps the [pathEnv, value] pair).
+	 *
+	 * Used in compilePipe to thread the path env into the right-hand side.
+	 */
+	public function maybeUnwrapPath( mixed $item ): array {
+		if ( !$this->pathMode ) {
+			return [ $this, $item ];
+		}
+		return $item;
+	}
+
+	/**
+	 * Extract the full path array from a path-mode generator output.
+	 * $item must be a [$pathEnv, $value] pair produced by maybeWithPath().
+	 * Only meaningful when in path mode; used exclusively by path/1.
+	 */
+	public function extractPath( mixed $item ): array {
+		return $item[0]->getPath();
 	}
 
 }

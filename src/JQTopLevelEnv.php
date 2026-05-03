@@ -283,6 +283,16 @@ class JQTopLevelEnv extends JQEnv {
 			};
 		};
 
+		// path/1 — yield the path(s) that expr traverses
+		$defs['path/1'] = static function ( array $argFns ): Closure {
+			$exprFn = $argFns[0];
+			return static function ( mixed $input, JQEnv $env ) use ( $exprFn ): Generator {
+				foreach ( $exprFn( $input, $env->enterPathMode() ) as $item ) {
+					yield $env->extractPath( $item );
+				}
+			};
+		};
+
 		// delpaths/1 — delete all listed paths from the input
 		$defs['delpaths/1'] = static function ( array $argFns ): Closure {
 			$pathsFn = $argFns[0];

@@ -126,7 +126,7 @@ class JQCompile {
 	 */
 	private function compileIdentity(): Closure {
 		return static function ( mixed $input, JQEnv $env ): Generator {
-			yield $input;
+			yield $env->maybeWithPath( $input );
 		};
 	}
 
@@ -142,8 +142,9 @@ class JQCompile {
 		$leftFn  = $this->compileNode( $node['left'] );
 		$rightFn = $this->compileNode( $node['right'] );
 		return static function ( mixed $input, JQEnv $env ) use ( $leftFn, $rightFn ): Generator {
-			foreach ( $leftFn( $input, $env ) as $mid ) {
-				yield from $rightFn( $mid, $env );
+			foreach ( $leftFn( $input, $env ) as $item ) {
+				[ $nextEnv, $mid ] = $env->maybeUnwrapPath( $item );
+				yield from $rightFn( $mid, $nextEnv );
 			}
 		};
 	}
@@ -294,8 +295,20 @@ class JQCompile {
 					foreach ( $filterNames as $i => $pName ) {
 						$argFn = $argFns[$i];
 						$bodyEnv = $bodyEnv->bind( $pName, 0,
-							static function ( mixed $argIn, JQEnv $ignored ) use ( $argFn, $callEnv ): Generator {
-								yield from $argFn( $argIn, $callEnv );
+							static function ( mixed $argIn, JQEnv $env ) use ( $argFn, $callEnv ): Generator {
+								if ( $env->isPathMode() ) {
+									// Re-root the accumulated path onto $callEnv so
+									// that call-site variable bindings and path mode
+									// are both preserved.  getPath() + appendPath()
+									// reconstructs the prefix (typically 0–2 steps).
+									$effectiveEnv = $callEnv->enterPathMode();
+									foreach ( $env->getPath() as $key ) {
+										$effectiveEnv = $effectiveEnv->appendPath( $key );
+									}
+								} else {
+									$effectiveEnv = $callEnv;
+								}
+								yield from $argFn( $argIn, $effectiveEnv );
 							}
 						);
 					}
@@ -371,7 +384,9 @@ class JQCompile {
 		$thenFn = $this->compileNode( $node['then'] );
 		$elseFn = $this->compileNode( $node['else'] );
 		return static function ( mixed $input, JQEnv $env ) use ( $condFn, $thenFn, $elseFn ): Generator {
-			foreach ( $condFn( $input, $env ) as $condVal ) {
+			// Condition must be evaluated in normal mode (it produces a boolean,
+			// not a path), even when the enclosing expression is in path mode.
+			foreach ( $condFn( $input, $env->leavePathMode() ) as $condVal ) {
 				if ( JQUtils::toBoolean( $condVal ) ) {
 					yield from $thenFn( $input, $env );
 				} else {
@@ -684,12 +699,17 @@ class JQCompile {
 		$exprFn = $this->compileNode( $node['expr'] );
 		$opt    = $node['opt'];
 		return static function ( mixed $input, JQEnv $env ) use ( $exprFn, $opt ): Generator {
-			foreach ( $exprFn( $input, $env ) as $base ) {
+			foreach ( $exprFn( $input, $env ) as $item ) {
+				[ $baseEnv, $base ] = $env->maybeUnwrapPath( $item );
 				try {
 					if ( is_object( $base ) ) {
-						yield from get_object_vars( $base );
+						foreach ( get_object_vars( $base ) as $k => $v ) {
+							yield $baseEnv->appendPath( $k )->maybeWithPath( $v );
+						}
 					} elseif ( is_array( $base ) ) {
-						yield from $base;
+						foreach ( $base as $k => $v ) {
+							yield $baseEnv->appendPath( $k )->maybeWithPath( $v );
+						}
 					} else {
 						throw new JQError( 'Cannot iterate over ' . JQUtils::typeName( $base ) . ' (' . JQUtils::toString( $base ) . ')' );
 					}
@@ -732,15 +752,16 @@ class JQCompile {
 		$name   = $node['name'];
 		$opt    = $node['opt'];
 		return static function ( mixed $input, JQEnv $env ) use ( $exprFn, $name, $opt ): Generator {
-			foreach ( $exprFn( $input, $env ) as $base ) {
+			foreach ( $exprFn( $input, $env ) as $item ) {
+				[ $baseEnv, $base ] = $env->maybeUnwrapPath( $item );
 				if ( $base === null ) {
-					yield null;
+					yield $baseEnv->appendPath( $name )->maybeWithPath( null );
 					continue;
 				} elseif ( $opt && !is_object( $base ) ) {
 					continue;
 				}
-				$base = JQUtils::checkObject( 'field', $base );
-				yield $base->$name ?? null;
+				$obj = JQUtils::checkObject( 'field', $base );
+				yield $baseEnv->appendPath( $name )->maybeWithPath( $obj->$name ?? null );
 			}
 		};
 	}
@@ -760,26 +781,29 @@ class JQCompile {
 		$keyFn  = $this->compileNode( $node['key'] );
 		$opt    = $node['opt'];
 		return static function ( mixed $input, JQEnv $env ) use ( $exprFn, $keyFn, $opt ): Generator {
-			foreach ( $exprFn( $input, $env ) as $base ) {
+			foreach ( $exprFn( $input, $env ) as $item ) {
+				[ $baseEnv, $base ] = $env->maybeUnwrapPath( $item );
 				// The key expression sees the original $input, not $base.
-				// e.g. in .a[.b], .b is evaluated against the outer input,
-				// not against the result of .a.
-				foreach ( $keyFn( $input, $env ) as $key ) {
+				// Always evaluated in normal (non-path) mode: the key determines
+				// which slot to access; it is not itself a path to collect.
+				foreach ( $keyFn( $input, $env->leavePathMode() ) as $key ) {
 					if ( $base === null ) {
-						yield null;
+						yield $baseEnv->appendPath( $key )->maybeWithPath( null );
 					} elseif ( is_object( $base ) ) {
 						if ( $opt && !is_string( $key ) ) {
 							continue;
 						}
 						$key = JQUtils::checkString( 'index', $key );
-						yield $base->$key ?? null;
+						yield $baseEnv->appendPath( $key )->maybeWithPath( $base->$key ?? null );
 					} elseif ( is_array( $base ) ) {
 						JQUtils::assertIsList( 'index', $base );
 						if ( $opt && !JQUtils::isNumber( $key ) ) {
 							continue;
 						}
 						$index = JQUtils::adjustIndex( 'index', $key, $base );
-						yield ( $index === null ) ? null : $base[$index];
+						yield $baseEnv->appendPath( (int)$key )->maybeWithPath(
+							( $index === null ) ? null : $base[$index]
+						);
 					} elseif ( !$opt ) {
 						throw new JQError(
 							'Cannot index ' . JQUtils::typeName( $base ) .
@@ -922,7 +946,9 @@ class JQCompile {
 				yield from $bodyFn( $input, $env );
 			} catch ( JQError $e ) {
 				if ( $catchFn !== null ) {
-					yield from $catchFn( $e->jqValue, $env );
+					// The catch handler receives the error value, not a path;
+					// always run it in normal mode.
+					yield from $catchFn( $e->jqValue, $env->leavePathMode() );
 				}
 			}
 		};
@@ -1013,10 +1039,22 @@ class JQCompile {
 		$toFn   = $node['to'] !== null ? $this->compileNode( $node['to'] ) : $yieldNull;
 		$opt    = $node['opt'];
 		return static function ( mixed $input, JQEnv $env ) use ( $exprFn, $fromFn, $toFn, $opt ): Generator {
-			foreach ( $exprFn( $input, $env ) as $base ) {
-				foreach ( $fromFn( $input, $env ) as $from ) {
-					foreach ( $toFn( $input, $env ) as $to ) {
-						yield from JQUtils::slice( $base, $from, $to, $opt );
+			foreach ( $exprFn( $input, $env ) as $item ) {
+				[ $baseEnv, $base ] = $env->maybeUnwrapPath( $item );
+				// from/to bounds are not part of the path; evaluate in normal mode.
+				$normalEnv = $env->leavePathMode();
+				foreach ( $fromFn( $input, $normalEnv ) as $from ) {
+					foreach ( $toFn( $input, $normalEnv ) as $to ) {
+						if ( $env->isPathMode() ) {
+							// In path mode yield the slice-path key alongside the
+							// sliced value so that downstream ops (and delpaths) work.
+							$sliceKey = (object)[ 'start' => $from, 'end' => $to ];
+							foreach ( JQUtils::slice( $base, $from, $to, $opt ) as $sliceVal ) {
+								yield $baseEnv->appendPath( $sliceKey )->maybeWithPath( $sliceVal );
+							}
+						} else {
+							yield from JQUtils::slice( $base, $from, $to, $opt );
+						}
 					}
 				}
 			}
@@ -1314,6 +1352,17 @@ class JQCompile {
 				array_splice( $newArr, $index, 1 );
 				return $newArr;
 			}
+		}
+		// Slice-path key: (object)['start' => ..., 'end' => ...] produced by
+		// compileSlice in path mode.  Splices the range out of the array.
+		if ( is_object( $key ) && is_array( $container ) ) {
+			JQUtils::assertIsList( 'deleteAtPath', $container );
+			$len = count( $container );
+			$f   = JQUtils::normalizeSliceIdx( $key->start ?? null, $len, 0 );
+			$t   = JQUtils::normalizeSliceIdx( $key->end ?? null, $len, $len );
+			$newArr = $container;
+			array_splice( $newArr, $f, max( 0, $t - $f ) );
+			return array_values( $newArr );
 		}
 		return $container;
 	}
