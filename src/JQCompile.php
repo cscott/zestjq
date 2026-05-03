@@ -1073,18 +1073,9 @@ class JQCompile {
 		$op      = $node['op'];
 		$lhsNode = $node['left'];
 
-		if ( $op === '=' ) {
-			$setter = $this->compilePathSetter( $lhsNode );
-			$rhsFn  = $this->compileNode( $node['right'] );
-			return static function ( mixed $input, JQEnv $env ) use ( $setter, $rhsFn ): Generator {
-				foreach ( $rhsFn( $input, $env ) as $newVal ) {
-					yield $setter( $input, $newVal, $env );
-				}
-			};
-		}
-
 		// Desugar compound ops to |= : "lhs op= rhs" → "lhs |= (. op rhs)"
 		$updateFn = match ( $op ) {
+			'=',
 			'|='  => $this->compileNode( $node['right'] ),
 			'//=' => $this->compileAlternative( [ 'left' => [ 'type' => 'identity' ], 'right' => $node['right'] ] ),
 			default => $this->compileBinop( [
@@ -1094,26 +1085,32 @@ class JQCompile {
 			] ),
 		};
 
-		return $this->compilePathUpdate( $lhsNode, $updateFn );
+		if ( $op === '=' ) {
+			return $this->compileAssignSet( $lhsNode, $updateFn );
+		}
+		return $this->compileAssignUpdate( $lhsNode, $updateFn );
 	}
 
 	/**
-	 * Compile a path expression into a setter Closure.
-	 *
-	 * The returned Closure has signature Closure(mixed $container, mixed $newVal, JQEnv): mixed
-	 * and returns $container with the path set to $newVal.
+	 * Compile "pathNode = rhsFn" — for each value produced by rhsFn, set every
+	 * path produced by pathNode to that value and yield the updated input.
 	 *
 	 * @param array $pathNode AST path node
-	 * @return Closure(mixed,mixed,JQEnv):mixed
+	 * @param Closure(mixed,JQEnv):Generator $rhsFn compiled RHS expression
+	 * @return Closure(mixed,JQEnv):Generator a Filter
 	 */
-	private function compilePathSetter( array $pathNode ): Closure {
+	private function compileAssignSet( array $pathNode, Closure $rhsFn ): Closure {
 		$pathFn = $this->compileNode( $pathNode );
-		return static function ( mixed $container, mixed $newVal, JQEnv $env ) use ( $pathFn ): mixed {
+		return static function ( mixed $input, JQEnv $env ) use ( $pathFn, $rhsFn ): Generator {
 			$pathEnv = $env->enterPathMode();
-			foreach ( $pathFn( $container, $pathEnv ) as $item ) {
-				return self::setAtPath( $container, $pathEnv->extractPath( $item ), 0, $newVal );
+			foreach ( $rhsFn( $input, $env ) as $newVal ) {
+				$result = $input;
+				foreach ( $pathFn( $input, $pathEnv ) as $item ) {
+					$result = self::setAtPath( $input, $pathEnv->extractPath( $item ), 0, $newVal );
+					break;
+				}
+				yield $result;
 			}
-			return $container;
 		};
 	}
 
@@ -1127,7 +1124,7 @@ class JQCompile {
 	 * @param Closure(mixed,JQEnv):Generator $updateFn
 	 * @return Closure(mixed,JQEnv):Generator a Filter
 	 */
-	private function compilePathUpdate( array $pathNode, Closure $updateFn ): Closure {
+	private function compileAssignUpdate( array $pathNode, Closure $updateFn ): Closure {
 		$pathFn = $this->compileNode( $pathNode );
 		return static function ( mixed $input, JQEnv $env ) use ( $pathFn, $updateFn ): Generator {
 			$pathEnv  = $env->enterPathMode();
