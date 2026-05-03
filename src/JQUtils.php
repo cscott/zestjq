@@ -46,7 +46,7 @@ class JQUtils {
 		if ( self::isNumber( $val ) ) {
 			return $val;
 		}
-		if ( is_string( $val ) && is_numeric( $val ) ) {
+		if ( is_string( $val ) && trim( $val ) === $val && is_numeric( $val ) ) {
 			// @phan-suppress-next-line PhanTypeInvalidLeftOperandOfAdd
 			return $val + 0;
 		}

@@ -95,11 +95,7 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 			2337, 2341 =>
 			'debug/0 and input/0 not yet implemented',
 
-			// tonumber does not accept strings with leading/trailing whitespace
-			2390 =>
-			'tonumber does not accept numeric strings with leading/trailing whitespace',
-
-			// implode does not replace out-of-range codepoints with U+FFFD
+// implode does not replace out-of-range codepoints with U+FFFD
 			2403, 2407 =>
 			'implode does not replace out-of-range codepoints with U+FFFD replacement character',
 
