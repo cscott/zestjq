@@ -336,6 +336,15 @@ class JQTopLevelEnv extends JQEnv {
 			$exprFn = $argFns[0];
 			return static function ( mixed $input, JQEnv $env ) use ( $exprFn ): Generator {
 				foreach ( $exprFn( $input, $env->enterPathMode() ) as $item ) {
+					// Each output must be a [$pathEnv, $value] pair produced by a
+					// genuine path operation (field, index, iter, identity…).
+					// Constructing operations (array literals, arithmetic, map…)
+					// yield plain values; detect and report them as invalid paths.
+					if ( !( ( $item[0] ?? null ) instanceof JQPathEnv ) ) {
+						throw new JQError(
+							'Invalid path expression with result ' . JQUtils::jsonEncode( $item )
+						);
+					}
 					yield $env->extractPath( $item );
 				}
 			};

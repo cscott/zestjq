@@ -297,22 +297,38 @@ class JQCompile {
 						$bodyEnv = $bodyEnv->bind( $pName, 0,
 							static function ( mixed $argIn, JQEnv $env ) use ( $argFn, $callEnv ): Generator {
 								if ( $env->isPathMode() ) {
-									// Re-root the accumulated path onto $callEnv so
-									// that call-site variable bindings and path mode
-									// are both preserved.  getPath() + appendPath()
-									// reconstructs the prefix (typically 0–2 steps).
-									$effectiveEnv = $callEnv->enterPathMode();
+									// Re-root the accumulated path onto $callEnv so that
+									// call-site variable bindings and path mode are both
+									// preserved.  Strip any path mode from $callEnv first
+									// so enterPathMode() doesn't throw when called from
+									// nested path-mode contexts.
+									$effectiveEnv = $callEnv->leavePathMode()
+										->enterPathMode();
 									foreach ( $env->getPath() as $key ) {
 										$effectiveEnv = $effectiveEnv->appendPath( $key );
 									}
 								} else {
-									$effectiveEnv = $callEnv;
+									// Called in normal mode (e.g. as an if-condition):
+									// strip any path mode from the call env so that
+									// identity and field access yield plain values.
+									$effectiveEnv = $callEnv->leavePathMode();
 								}
 								yield from $argFn( $argIn, $effectiveEnv );
 							}
 						);
 					}
-					yield from $bodyFn( $in, $bodyEnv );
+					// Propagate path mode from the call site into the body so that
+					// structural operations inside the def (identity, field, iter…)
+					// yield path-wrapped values when invoked inside path/1.
+					if ( $callEnv->isPathMode() ) {
+						$bodyPathEnv = $bodyEnv->enterPathMode();
+						foreach ( $callEnv->getPath() as $key ) {
+							$bodyPathEnv = $bodyPathEnv->appendPath( $key );
+						}
+						yield from $bodyFn( $in, $bodyPathEnv );
+					} else {
+						yield from $bodyFn( $in, $bodyEnv );
+					}
 				};
 			};
 			// @phan-suppress-next-line PhanTypeMismatchArgumentSuperType
@@ -428,8 +444,10 @@ class JQCompile {
 		}
 		$exprFn = $this->compileNode( $node['expr'] );
 		return static function ( mixed $input, JQEnv $env ) use ( $exprFn ): Generator {
+			// Array construction always produces a new value, never a path
+			// extension, so leave path mode before evaluating the body.
 			$items = [];
-			foreach ( $exprFn( $input, $env ) as $val ) {
+			foreach ( $exprFn( $input, $env->leavePathMode() ) as $val ) {
 				$items[] = $val;
 			}
 			yield $items;
