@@ -289,7 +289,10 @@ private function a30($first, $rest) {
 }
 private function a31($name, $pat) {
  return [ 'key' => [ 'type' => 'literal', 'value' => $name ],
-               'pattern' => $pat ]; 
+               'pattern' => [ 'type' => 'and_pattern',
+                              'patterns' => [
+                                [ 'type' => 'var_pattern', 'name' => $name ],
+                                $pat ] ] ]; 
 }
 private function a32($key, $pat) {
  return [ 'key' => $key, 'pattern' => $pat ]; 

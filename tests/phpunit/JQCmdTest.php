@@ -369,4 +369,41 @@ class JQCmdTest extends \PHPUnit\Framework\TestCase {
 		$this->assertEquals( $expected, $actual );
 	}
 
+	// -----------------------------------------------------------------------
+	// Destructuring patterns: multi-valued key produces multiple env bindings
+	// -----------------------------------------------------------------------
+
+	public static function patternMultiEnvProvider(): array {
+		return [
+			// obj_pattern with expression key yields one env per key value
+			'obj_pattern multi-key, array' => [
+				'. as {("a","b"): $x} | $x',
+				'{"a":1,"b":2}',
+				[ '1', '2' ],
+			],
+			// same key repeated in obj_pattern yields two envs (same field, different iteration)
+			'array_pattern with multi-key elem' => [
+				'. as [{("a","b"): $x}, $y] | [$x, $y]',
+				'[{"a":1,"b":2}, 3]',
+				[ '[1,3]', '[2,3]' ],
+			],
+			// and_pattern ({$b: subpat}): $b binds once; subpat with multi-key yields two envs
+			'and_pattern with multi-key subpat' => [
+				'. as {$b: {("c","d"): $x}} | [$b, $x]',
+				'{"b":{"c":10,"d":20}}',
+				[ '[{"c":10,"d":20},10]', '[{"c":10,"d":20},20]' ],
+			],
+		];
+	}
+
+	/**
+	 * @dataProvider patternMultiEnvProvider
+	 * @covers \Wikimedia\Zest\JQCompile
+	 */
+	public function testPatternMultiEnv( string $filter, string $jsonInput, array $expectedJsonOutputs ): void {
+		$actual = $this->runCompact( [ $filter ], $jsonInput );
+		$expected = array_map( json_decode( ... ), $expectedJsonOutputs );
+		$this->assertEquals( $expected, $actual );
+	}
+
 }

@@ -16,7 +16,7 @@ use Wikimedia\Zest\JQUtils;
 class JQCompileTest extends \PHPUnit\Framework\TestCase {
 
 	public static function skipReason( string $label, int $lineno ): ?string {
-		if ( $lineno > 660 ) {
+		if ( $lineno > 1110 ) {
 			return 'Skipped temporarily';
 		}
 		return match ( $lineno ) {

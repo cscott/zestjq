@@ -459,10 +459,13 @@ Pattern
     { return [ 'type' => 'obj_pattern', 'fields' => [ $first, ...$rest ] ]; }
 
 ObjPat
-  /* {$var: pattern} — key is the variable's name as a literal string */
+  /* {$var: pattern} — key is the variable name; $var bound to field value AND subpattern matched */
   = "$" name:Name _ ":" _ pat:Pattern
     { return [ 'key' => [ 'type' => 'literal', 'value' => $name ],
-               'pattern' => $pat ]; }
+               'pattern' => [ 'type' => 'and_pattern',
+                              'patterns' => [
+                                [ 'type' => 'var_pattern', 'name' => $name ],
+                                $pat ] ] ]; }
   / key:ObjPatKey _ ":" _ pat:Pattern
     { return [ 'key' => $key, 'pattern' => $pat ]; }
   /* {$var} shorthand — key is the variable name, pattern binds to $var */
