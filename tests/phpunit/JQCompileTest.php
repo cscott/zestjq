@@ -46,8 +46,7 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 
 			// various error message format differences
 			// 2014: our arithmetic type errors omit the value (jq says "number (1234...) and string")
-			1448, 1481, 1553, 1557, 1997, 2005, 2014, 2058, 2062,
-			2498, 2516, 2523 =>
+			1448, 2014, 2498 =>
 			'Error message format differs from jq',
 
 			// indices/1 doesn't support overlapping string matches or array needles
@@ -170,6 +169,45 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 			static function ( mixed $v ): mixed {
 				if ( is_string( $v ) && preg_match( '/^(l|r)?trim requires/', $v ) ) {
 					return 'trim input must be a string';
+				}
+				return $v;
+			},
+
+			// jq says "TYPE (value) cannot be negated"; we say
+			// "negation requires a number input, got TYPE"
+			1481, 1997, 2005 =>
+			static function ( mixed $v ): mixed {
+				if ( is_string( $v ) && preg_match(
+					'/^(null|boolean|string|number|array|object) \(.*\) cannot be negated$/',
+					$v, $m
+				) ) {
+					return 'negation requires a number input, got ' . $m[1];
+				}
+				return $v;
+			},
+
+			// jq says "TYPE (value) cannot be searched…" / "TYPE (value) is not a string";
+			// we say "_strindices requires string inputs, got TYPE"
+			1553, 1557 =>
+			static function ( mixed $v ): mixed {
+				if ( is_string( $v ) && preg_match(
+					'/^(null|boolean|string|number|array|object) \(.*\) (?:cannot be searched|is not a string)/',
+					$v, $m
+				) ) {
+					return '_strindices requires string inputs, got ' . $m[1];
+				}
+				return $v;
+			},
+
+			// jq says "startswith() requires string inputs" (with parens, no type suffix);
+			// we say "startswith requires string inputs, got TYPE"
+			2516, 2523 =>
+			static function ( mixed $v ): mixed {
+				if ( is_string( $v ) && preg_match(
+					'/^((?:start|end)swith)(?:\(\))? requires string inputs(?:, got \S+)?$/',
+					$v, $m
+				) ) {
+					return $m[1] . ' requires string inputs';
 				}
 				return $v;
 			},

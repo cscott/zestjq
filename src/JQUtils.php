@@ -416,20 +416,22 @@ class JQUtils {
 		if ( is_string( $a ) && is_string( $b ) ) {
 			return $b === '' ? mb_str_split( $a ) : explode( $b, $a );
 		}
-		throw new JQError( self::typeName( $a ) . ' and ' . self::typeName( $b ) . ' cannot be divided' );
+		throw new JQError( self::typeNameAndValue( $a ) . ' and ' . self::typeNameAndValue( $b ) . ' cannot be divided' );
 	}
 
 	/**
 	 * JQ modulo: integer remainder (zero divisor throws).
 	 */
 	public static function modulo( mixed $a, mixed $b ): mixed {
+		$extra = '';
 		if ( self::isNumber( $a ) && self::isNumber( $b ) ) {
-			if ( $b == 0 ) {
-				throw new JQError( 'number (' . $a . ') modulo zero' );
+			if ( $b != 0 ) {
+				return fmod( (float)$a, (float)$b );
+			} else {
+				$extra = " because the divisor is zero";
 			}
-			return fmod( (float)$a, (float)$b );
 		}
-		throw new JQError( self::typeName( $a ) . ' and ' . self::typeName( $b ) . ' cannot have remainder computed' );
+		throw new JQError( self::typeNameAndValue( $a ) . ' and ' . self::typeNameAndValue( $b ) . ' cannot be divided (remainder)' . $extra );
 	}
 
 	/**
