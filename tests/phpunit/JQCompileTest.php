@@ -55,13 +55,9 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 			1625, 1629 =>
 			'String repetition with fractional or NaN multiplier differs from jq behavior',
 
-			// sort/0, unique/0, min/0, max/0 and related builtins not yet implemented
-			1673, 1677, 1685, 1689, 1693, 1697, 2262, 2271, 2275 =>
-			'sort/0, unique/0, min/0, max/0, sort_by/1, group_by/1, min_by/1, max_by/1 not yet implemented',
-
-			// transpose/0 requires max/0 which is not yet implemented
-			1815, 1819 =>
-			'transpose/0 not yet implemented (depends on max/0)',
+			// sort_by/1, group_by/1, min_by/1, max_by/1 not yet implemented
+			1677, 1693, 1697, 2271, 2275 =>
+			'sort_by/1, group_by/1, min_by/1, max_by/1 not yet implemented (_sort_by_impl etc. missing)',
 
 			// bsearch/1 not yet implemented
 			1827, 1835, 1839 =>

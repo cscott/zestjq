@@ -397,6 +397,52 @@ class JQTopLevelEnv extends JQEnv {
 			yield preg_replace( self::TRIM_RIGHT, '', $str );
 		};
 
+		// sort/0 — sort array by jq type ordering
+		$defs['sort/0'] = static function ( mixed $input, JQEnv $env ): Generator {
+			$arr = JQUtils::checkArray( 'sort', $input );
+			usort( $arr, JQUtils::compare( ... ) );
+			yield $arr;
+		};
+
+		// unique/0 — sort then remove consecutive duplicates
+		$defs['unique/0'] = static function ( mixed $input, JQEnv $env ): Generator {
+			$arr = JQUtils::checkArray( 'unique', $input );
+			usort( $arr, JQUtils::compare( ... ) );
+			$result = [];
+			$last = false;
+			foreach ( $arr as $v ) {
+				if ( $result === [] || JQUtils::compare( $last, $v ) !== 0 ) {
+					$result[] = $v;
+					$last = $v;
+				}
+			}
+			yield $result;
+		};
+
+		// min/0, max/0 — null for empty array, otherwise the extreme value
+		$defs['min/0'] = static function ( mixed $input, JQEnv $env ): Generator {
+			$arr = JQUtils::checkArray( 'min', $input );
+			$best = $arr[0] ?? null;
+			$len = count( $arr );
+			for ( $i = 1; $i < $len; $i++ ) {
+				if ( JQUtils::compare( $arr[$i], $best ) < 0 ) {
+					$best = $arr[$i];
+				}
+			}
+			yield $best;
+		};
+		$defs['max/0'] = static function ( mixed $input, JQEnv $env ): Generator {
+			$arr = JQUtils::checkArray( 'max', $input );
+			$best = $arr[0] ?? null;
+			$len = count( $arr );
+			for ( $i = 1; $i < $len; $i++ ) {
+				if ( JQUtils::compare( $arr[$i], $best ) > 0 ) {
+					$best = $arr[$i];
+				}
+			}
+			yield $best;
+		};
+
 		// _strindices/1 — array of codepoint positions where needle occurs in input string
 		$defs['_strindices/1'] = static function ( array $argFns ): Closure {
 			$needleFn = $argFns[0];
