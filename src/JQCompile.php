@@ -90,6 +90,8 @@ class JQCompile {
 			'call'     => $this->compileCall( $node ),
 			'bind'     => $this->compileBind( $node ),
 			'compare'  => $this->compileCompare( $node ),
+			'and'      => $this->compileAnd( $node ),
+			'or'       => $this->compileOr( $node ),
 			'iter'     => $this->compileIter( $node ),
 			'neg'      => $this->compileNeg( $node ),
 			'field'    => $this->compileField( $node ),
@@ -368,7 +370,7 @@ class JQCompile {
 		$elseFn = $this->compileNode( $node['else'] );
 		return static function ( mixed $input, JQEnv $env ) use ( $condFn, $thenFn, $elseFn ): Generator {
 			foreach ( $condFn( $input, $env ) as $condVal ) {
-				if ( $condVal !== null && $condVal !== false ) {
+				if ( JQUtils::toBoolean( $condVal ) ) {
 					yield from $thenFn( $input, $env );
 				} else {
 					yield from $elseFn( $input, $env );
@@ -625,6 +627,49 @@ class JQCompile {
 	}
 
 	/**
+	 * Compile an 'and' node. Left-to-right, short-circuits on falsy left:
+	 * yields false without evaluating right. If left is truthy, yields
+	 * bool(right) for each output of right. Uses jq truthiness (null and
+	 * false are falsy; everything else, including 0 and "", is truthy).
+	 */
+	private function compileAnd( array $node ): Closure {
+		$leftFn  = $this->compileNode( $node['left'] );
+		$rightFn = $this->compileNode( $node['right'] );
+		return static function ( mixed $input, JQEnv $env ) use ( $leftFn, $rightFn ): Generator {
+			foreach ( $leftFn( $input, $env ) as $lv ) {
+				if ( !JQUtils::toBoolean( $lv ) ) {
+					yield false;
+				} else {
+					foreach ( $rightFn( $input, $env ) as $rv ) {
+						yield JQUtils::toBoolean( $rv );
+					}
+				}
+			}
+		};
+	}
+
+	/**
+	 * Compile an 'or' node. Left-to-right, short-circuits on truthy left:
+	 * yields true without evaluating right. If left is falsy, yields
+	 * bool(right) for each output of right.
+	 */
+	private function compileOr( array $node ): Closure {
+		$leftFn  = $this->compileNode( $node['left'] );
+		$rightFn = $this->compileNode( $node['right'] );
+		return static function ( mixed $input, JQEnv $env ) use ( $leftFn, $rightFn ): Generator {
+			foreach ( $leftFn( $input, $env ) as $lv ) {
+				if ( JQUtils::toBoolean( $lv ) ) {
+					yield true;
+				} else {
+					foreach ( $rightFn( $input, $env ) as $rv ) {
+						yield JQUtils::toBoolean( $rv );
+					}
+				}
+			}
+		};
+	}
+
+	/**
 	 * Compile an iter node (expr[] or expr[]?).
 	 * Iterates over arrays (yielding each element) and objects (yielding each
 	 * value in insertion order). null and other non-iterable types throw
@@ -847,7 +892,7 @@ class JQCompile {
 		return static function ( mixed $input, JQEnv $env ) use ( $leftFn, $rightFn ): Generator {
 			$found = false;
 			foreach ( $leftFn( $input, $env ) as $val ) {
-				if ( $val !== null && $val !== false ) {
+				if ( JQUtils::toBoolean( $val ) ) {
 					yield $val;
 					$found = true;
 				}

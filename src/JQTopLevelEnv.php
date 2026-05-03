@@ -58,7 +58,7 @@ class JQTopLevelEnv extends JQEnv {
 
 		// not/0 — JQ truthiness: null and false are falsy, everything else truthy
 		$defs['not/0'] = static function ( mixed $input, JQEnv $env ): Generator {
-			yield $input === null || $input === false;
+			yield !JQUtils::toBoolean( $input );
 		};
 
 		// empty/0 — produces no output

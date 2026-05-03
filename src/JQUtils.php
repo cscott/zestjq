@@ -51,6 +51,14 @@ class JQUtils {
 	}
 
 	/**
+	 * JQ truthiness: false and null are falsy; everything else is truthy
+	 * (including 0, "", [], and {}).
+	 */
+	public static function toBoolean( mixed $v ): bool {
+		return $v !== null && $v !== false;
+	}
+
+	/**
 	 * Convert a JQ value to string with tostring semantics:
 	 * strings pass through unchanged; everything else is JSON-encoded.
 	 */
