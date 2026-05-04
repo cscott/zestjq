@@ -1181,7 +1181,12 @@ class JQCompile {
 	 *
 	 * For plain =:  evaluate rhs against input, then set lhs to each result.
 	 * For |=:       get the current value at lhs, apply rhs as an update fn, set back.
-	 * For op= (+=, -=, *=, /=, %=, //=): desugars to lhs |= (. op rhs).
+	 * For op= (+=, -=, *=, /=, %=, //=): the RHS is evaluated on the OUTER input
+	 *   (the input at the time of evaluation), not on the current path value.
+	 *   "A op= B" means: for each path p in A, set p to (value-at-p) op ($outer | B).
+	 *   This differs from "A |= . op B" when B references the outer object/array
+	 *   (e.g. ".foo += .foo" must read .foo from the original input, not from the
+	 *   scalar value 2 that is the current .foo).
 	 *
 	 * @param array $node Node with 'op', 'left', and 'right' keys
 	 * @return Closure(mixed,JQEnv):Generator a Filter
@@ -1189,22 +1194,44 @@ class JQCompile {
 	private function compileAssign( array $node ): Closure {
 		$op      = $node['op'];
 		$lhsNode = $node['left'];
-
-		// Desugar compound ops to |= : "lhs op= rhs" → "lhs |= (. op rhs)"
-		$updateFn = match ( $op ) {
-			'=',
-			'|='  => $this->compileNode( $node['right'] ),
-			'//=' => $this->compileAlternative( [ 'left' => [ 'type' => 'identity' ], 'right' => $node['right'] ] ),
-			default => $this->compileBinop( [
-				'op'    => rtrim( $op, '=' ),
-				'left'  => [ 'type' => 'identity' ],
-				'right' => $node['right'],
-			] ),
-		};
+		$rhsFn = $this->compileNode( $node['right'] );
 
 		if ( $op === '=' ) {
-			return $this->compileAssignSet( $lhsNode, $updateFn );
+			return $this->compileAssignSet( $lhsNode, $rhsFn );
 		}
+
+		// Compound op= : the RHS is evaluated on the outer input, not the
+		// path value, so use a special form for $updateFn which can take
+		// the outer input, *and* the current value at the path, and yield
+		// a result (which will be written back).
+		$binaryOp = match ( $op ) {
+			'+=' => JQUtils::add( ... ),
+			'-=' => JQUtils::subtract( ... ),
+			'*=' => JQUtils::multiply( ... ),
+			'/=' => JQUtils::divide( ... ),
+			'%=' => JQUtils::modulo( ... ),
+			default => null,
+		};
+		$updateFn = match ( $op ) {
+			'|=' => static function ( mixed $input, mixed $current, JQEnv $env ) use ( $rhsFn ) {
+				yield from $rhsFn( $current, $env );
+			},
+			'//=' => static function ( mixed $input, mixed $current, JQEnv $env ) use ( $rhsFn ): Generator {
+				if ( JQUtils::toBoolean( $current ) ) {
+					yield $current;
+				} else {
+					yield from $rhsFn( $input, $env );
+				}
+			},
+			'+=', '-=', '*=', '/=', '%=' => static function ( mixed $input, mixed $current, JQEnv $env ) use ( $rhsFn, $binaryOp ): Generator {
+				foreach ( $rhsFn( $input, $env ) as $r ) {
+					yield $binaryOp( $current, $r );
+				}
+			},
+			default => throw new LogicException(
+				"Unknown compound assignment operator: {$op}"
+			),
+		};
 		return $this->compileAssignUpdate( $lhsNode, $updateFn );
 	}
 
@@ -1238,7 +1265,10 @@ class JQCompile {
 	 * index order to preserve correct positions.
 	 *
 	 * @param array $pathNode AST path node
-	 * @param Closure(mixed,JQEnv):Generator $updateFn
+	 * @param Closure(mixed,mixed,JQEnv):Generator $updateFn
+	 *  This is an unusual closure: it takes *two* values (the 'current' value
+	 *  of the node it is about to write, and the 'input' value from the
+	 *  surrounding context).
 	 * @return Closure(mixed,JQEnv):Generator a Filter
 	 */
 	private function compileAssignUpdate( array $pathNode, Closure $updateFn ): Closure {
@@ -1251,7 +1281,7 @@ class JQCompile {
 				$path      = $pathEnv->extractPath( $item );
 				$current   = self::getAtPath( $input, $path, 0 );
 				$hasOutput = false;
-				foreach ( $updateFn( $current, $env ) as $newVal ) {
+				foreach ( $updateFn( $input, $current, $env ) as $newVal ) {
 					$input     = self::setAtPath( $input, $path, 0, $newVal );
 					$hasOutput = true;
 					break;
@@ -1260,7 +1290,12 @@ class JQCompile {
 					$toDelete[] = $path;
 				}
 			}
-			foreach ( array_reverse( $toDelete ) as $path ) {
+			// Sort paths so higher/deeper paths are deleted first, preventing
+			// earlier deletions from shifting the positions of later ones.
+			// Reversed jq sort order (JQUtils::compare) correctly handles both
+			// sibling indices (higher first) and parent/child nesting (child first).
+			usort( $toDelete, static fn ( $a, $b ) => JQUtils::compare( $b, $a ) );
+			foreach ( $toDelete as $path ) {
 				$input = self::deleteAtPath( $input, $path, 0 );
 			}
 			yield $input;

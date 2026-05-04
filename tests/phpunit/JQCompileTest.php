@@ -19,8 +19,10 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 	public static function skipReason( string $label, int $lineno ): ?string {
 		return match ( $lineno ) {
 			// JSON cannot represent NaN or infinity; also affects 1E+1000 literals
-			// (jq clamps them to MAX_FLOAT; PHP represents them as INF which tojson encodes as null)
-			689, 2232, 2271, 2275 =>
+			// (jq clamps them to MAX_FLOAT; PHP represents them as INF which tojson encodes as null).
+			// 1306: input contains bare Infinity/-Infinity/NaN/-NaN literals, which
+			// our JSON decoder does not accept.
+			689, 1306, 2232, 2271, 2275 =>
 			'JSON can not portably represent NaN or infinite values',
 
 			1900, 1904, 1908, 1912, 1917, 1921, 1925, 1929, 1969, 1973, 1977,
@@ -33,15 +35,20 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 			2573, 2577, 2581, 2585 =>
 			'getpath/1, setpath/2, and pick/1 not yet implemented',
 
-			// del() bugs: wrong error message for non-array arg, null nodes
-			// created for paths through missing keys, wrong results for
-			// overlapping/duplicate indices, and NaN index treated as index 0
+			// del() bugs:
+			// 1173: wrong error message for non-array arg to delpaths
+			// 1177: null nodes created for paths through missing object keys
+			// 1184: mixed integer+slice deletion — e.g. del(.[1],.[2],[-3:9]):
+			//   slice keys (stdClass, rank 6) sort before integer keys (rank 3)
+			//   in reversed JQUtils::compare, so slices are always deleted first;
+			//   but when an integer index >= slice.start, removing the slice shifts
+			//   the element, so the integer deletion then misses or hits the wrong
+			//   position.  Correct handling requires path adjustment after each
+			//   deletion (tracking how each splice shifts later indices), which is
+			//   not yet implemented.
+			// 1188, 1192: NaN index treated as index 0 instead of being ignored
 			1173, 1177, 1184, 1188, 1192 =>
 			'del() has bugs with error messages, missing-key paths, overlapping indices, and NaN indices',
-
-			// assignment update operator bugs
-			1245, 1278, 1306, 1374 =>
-			'Assignment update operators (|=, +=, //=) have bugs with multi-index empty, NaN/Infinity inputs, and alternative update',
 
 			// various error message format differences
 			// 2014: large-float number representation in error messages differs

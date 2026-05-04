@@ -305,6 +305,46 @@ class JQCmdTest extends \PHPUnit\Framework\TestCase {
 	}
 
 	// -----------------------------------------------------------------------
+	// deleteAtPath slice splicing (via |= empty)
+	// -----------------------------------------------------------------------
+
+	public static function deleteAtPathSliceProvider(): array {
+		return [
+			// A single slice splice removes exactly the elements in [from, to).
+			'single slice, middle'          => [ '.[2:5] |= empty', '[0,1,2,3,4,5,6,7]', '[0,1,5,6,7]' ],
+			'single slice, negative from'   => [ '.[-3:]  |= empty', '[0,1,2,3,4]', '[0,1]' ],
+			'single slice, implicit from'   => [ '.[:-2]  |= empty', '[0,1,2,3,4]', '[3,4]' ],
+			'empty slice is no-op'          => [ '.[2:2]  |= empty', '[0,1,2,3]', '[0,1,2,3]' ],
+
+			// Two non-overlapping slices in any order: the sort puts the higher-end
+			// slice first so the lower slice's position is never shifted.
+			'two slices: higher-end first in expression' => [
+				'(.[5:7], .[1:3]) |= empty', '[0,1,2,3,4,5,6,7]', '[0,3,4,7]',
+			],
+			'two slices: lower-end first in expression' => [
+				'(.[1:3], .[5:7]) |= empty', '[0,1,2,3,4,5,6,7]', '[0,3,4,7]',
+			],
+
+			// An integer index that precedes all slice starts is not shifted
+			// when slices are removed first, so the result is still correct.
+			'integer-before-slice-start unaffected by deletion order' => [
+				'(.[5:7], .[0]) |= empty', '[0,1,2,3,4,5,6,7]', '[1,2,3,4,7]',
+			],
+		];
+	}
+
+	/**
+	 * @dataProvider deleteAtPathSliceProvider
+	 * @covers \Wikimedia\Zest\JQCompile
+	 */
+	public function testDeleteAtPathSlice( string $filter, string $jsonInput, string $expectedJsonOut ): void {
+		[ $code, $out, $err ] = $this->runWithJson( [ $filter ], $jsonInput );
+		$this->assertSame( 0, $code );
+		$this->assertSame( '', $err );
+		$this->assertSameJson( $expectedJsonOut, $out );
+	}
+
+	// -----------------------------------------------------------------------
 	// setAtPath negative indices
 	// -----------------------------------------------------------------------
 
