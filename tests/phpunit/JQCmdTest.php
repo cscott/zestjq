@@ -406,6 +406,55 @@ class JQCmdTest extends \PHPUnit\Framework\TestCase {
 		$this->assertEquals( $expected, $actual );
 	}
 
+	// foreach multi-value update and empty update
+
+	public static function foreachUpdateProvider(): array {
+		return [
+			// Multi-value update: all values are yielded; the last becomes the new acc.
+			// Each branch of the comma sees the original acc, not intermediate results.
+			// jq: [foreach range(3) as $x (5; . + $x, . * 2)]  → [5,10,11,20,22,40]
+			'multi-value update, no extract' => [
+				'[foreach range(3) as $x (5; . + $x, . * 2)]',
+				'null',
+				[ '[5,10,11,20,22,40]' ],
+			],
+			// When update is empty for a step, nothing is yielded for that step and
+			// the accumulator is unchanged.
+			// jq: [foreach range(4) as $x (0; if . < 2 then . + $x else empty end)]
+			//   → [0,1,3]
+			'empty update leaves acc unchanged, yields nothing for that step' => [
+				'[foreach range(4) as $x (0; if . < 2 then . + $x else empty end)]',
+				'null',
+				[ '[0,1,3]' ],
+			],
+			// Multi-value update with extract: extract is applied to each update value.
+			// jq: [foreach range(3) as $x (1; . + $x, . * 2; . + 1000)]
+			//   → [1001,1002,1003,1004,1006,1008]
+			'multi-value update with extract' => [
+				'[foreach range(3) as $x (1; . + $x, . * 2; . + 1000)]',
+				'null',
+				[ '[1001,1002,1003,1004,1006,1008]' ],
+			],
+			// Multi-value init: each init value runs an independent chain (from #3227).
+			// jq: foreach .[] as $x (0, 1; . + $x) on [1,2] → 1, 3, 2, 4
+			'multi-value init (#3227)' => [
+				'[foreach .[] as $x (0, 1; . + $x)]',
+				'[1,2]',
+				[ '[1,3,2,4]' ],
+			],
+		];
+	}
+
+	/**
+	 * @dataProvider foreachUpdateProvider
+	 * @covers \Wikimedia\Zest\JQCompile
+	 */
+	public function testForeachUpdate( string $filter, string $jsonInput, array $expectedJsonOutputs ): void {
+		$actual = $this->runCompact( [ $filter ], $jsonInput );
+		$expected = array_map( json_decode( ... ), $expectedJsonOutputs );
+		$this->assertEquals( $expected, $actual );
+	}
+
 	/**
 	 * Verify that trim/ltrim/rtrim strip exactly the Unicode whitespace
 	 * characters defined by jq's jvp_codepoint_is_whitespace():

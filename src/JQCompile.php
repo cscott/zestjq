@@ -1124,20 +1124,22 @@ class JQCompile {
 			foreach ( $initFn( $input, $plainEnv ) as $acc ) {
 				foreach ( $srcFn( $input, $plainEnv ) as $val ) {
 					foreach ( $patFn( $val, $plainEnv ) as $boundEnv ) {
+						// Yield each update value (or its extract); use the last as the
+						// new acc.  If update is empty, acc is unchanged and nothing is
+						// yielded for this step.
 						foreach ( $updateFn( $acc, $boundEnv ) as $newAcc ) {
 							$acc = $newAcc;
-							break;
-						}
-						if ( $extractFn !== null ) {
-							foreach ( $extractFn( $acc, $boundEnv ) as $extracted ) {
-								JQUtils::assertNotPath( $extracted, $env );
-								yield $extracted;
+							if ( $extractFn !== null ) {
+								foreach ( $extractFn( $acc, $boundEnv ) as $extracted ) {
+									JQUtils::assertNotPath( $extracted, $env );
+									yield $extracted;
+								}
+							} else {
+								JQUtils::assertNotPath( $acc, $env );
+								yield $acc;
 							}
-						} else {
-							JQUtils::assertNotPath( $acc, $env );
-							yield $acc;
 						}
-						break;
+						break; // patterns yield at most one binding
 					}
 				}
 			}
