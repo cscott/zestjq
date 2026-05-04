@@ -23,6 +23,8 @@ use stdClass;
 class JQUtils {
 	/** Maximum array or string size; prevents accidental huge allocations. */
 	public const MAX_SIZE = 1024 * 1024;
+	/** Maximum path size. */
+	public const MAX_PATH = 10000;
 
 	// -----------------------------------------------------------------------
 	// Type selectors

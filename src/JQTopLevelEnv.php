@@ -405,6 +405,49 @@ class JQTopLevelEnv extends JQEnv {
 			};
 		};
 
+		// getpath/1 — navigate input by the path array produced by $pathFn
+		$defs['getpath/1'] = static function ( array $argFns ): Closure {
+			$pathFn = $argFns[0];
+			return static function ( mixed $input, JQEnv $env ) use ( $pathFn ): Generator {
+				foreach ( $pathFn( $input, $env->leavePathMode() ) as $pathVal ) {
+					$path = JQUtils::checkArray( 'getpath', $pathVal );
+					if ( count( $path ) > JQUtils::MAX_PATH ) {
+						throw new JQError( 'Path too deep' );
+					}
+					$result = JQCompile::getAtPath( $input, $path, 0 );
+					if ( $env->isPathMode() ) {
+						// Don't bother to do this iteration to transfer the
+						// array into a pathEnv chain unless we're actually
+						// in a nested path
+						$pathEnv = $env;
+						foreach ( $path as $key ) {
+							$pathEnv = $pathEnv->appendPath( $key );
+						}
+						yield $pathEnv->maybeWithPath( $result );
+					} else {
+						yield $result;
+					}
+				}
+			};
+		};
+
+		// setpath/2 — return input with newVal written at the path array
+		$defs['setpath/2'] = static function ( array $argFns ): Closure {
+			[ $pathFn, $valFn ] = $argFns;
+			return static function ( mixed $input, JQEnv $env ) use ( $pathFn, $valFn ): Generator {
+				$plain = $env->leavePathMode();
+				foreach ( $pathFn( $input, $plain ) as $pathVal ) {
+					$path = JQUtils::checkArray( 'setpath', $pathVal );
+					if ( count( $path ) > JQUtils::MAX_PATH ) {
+						throw new JQError( 'Path too deep' );
+					}
+					foreach ( $valFn( $input, $plain ) as $newVal ) {
+						yield JQCompile::setAtPath( $input, $path, 0, $newVal );
+					}
+				}
+			};
+		};
+
 		// delpaths/1 — delete all listed paths from the input
 		$defs['delpaths/1'] = static function ( array $argFns ): Closure {
 			$pathsFn = $argFns[0];

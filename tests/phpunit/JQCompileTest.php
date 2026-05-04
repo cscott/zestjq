@@ -32,15 +32,17 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 			1993 =>
 			'Module-level directives not implemented',
 
-			// getpath/1, setpath/2, and the pick/1 builtin that depends on them
-			// are not yet implemented; also affects deep-path limit tests
-			1147, 1153, 1163, 1197, 1201, 1205, 1209, 1214, 1258, 2494, 2533,
-			2573, 2577, 2581, 2585 =>
-			'getpath/1, setpath/2, and pick/1 not yet implemented',
+			// setpath/2: non-scalar path keys (e.g. arrays) silently return
+			// the container unchanged instead of throwing an error; jq throws
+			// "Cannot update field at array index of array"
+			2533 =>
+			'setpath/2 silently ignores non-scalar path key instead of throwing',
 
 			// del() bugs:
 			// 1173: wrong error message for non-array arg to delpaths
-			// 1177: null nodes created for paths through missing object keys
+			// 1163, 1177: null nodes created for paths through missing object keys
+			//   (deleteAtPath clones the object and sets the missing key to null
+			//   instead of leaving it absent when the path doesn't exist)
 			// 1184: mixed integer+slice deletion — e.g. del(.[1],.[2],[-3:9]):
 			//   slice keys (stdClass, rank 6) sort before integer keys (rank 3)
 			//   in reversed JQUtils::compare, so slices are always deleted first;
@@ -50,7 +52,7 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 			//   deletion (tracking how each splice shifts later indices), which is
 			//   not yet implemented.
 			// 1188, 1192: NaN index treated as index 0 instead of being ignored
-			1173, 1177, 1184, 1188, 1192 =>
+			1163, 1173, 1177, 1184, 1188, 1192 =>
 			'del() has bugs with error messages, missing-key paths, overlapping indices, and NaN indices',
 
 			// various error message format differences
@@ -80,6 +82,13 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 			// debug/0 and input/0 not yet implemented
 			2337, 2341 =>
 			'debug/0 and input/0 not yet implemented',
+
+			// setpath with a 10000-element path: setAtPath is recursive, so a
+			// path of depth 10000 exhausts PHP's call stack before returning.
+			// setpath(depth>10000) and getpath(depth>10000) correctly throw
+			// "Path too deep" at the JQTopLevelEnv level before recursing.
+			2573 =>
+			'setAtPath recursive implementation exhausts PHP call stack at depth 10000',
 
 			// JSON nesting and path depth limits not implemented
 			2558, 2563, 2568, 2593, 2602 =>
@@ -238,6 +247,21 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 					$v, $m
 				) ) {
 					return $m[1] . ' requires a string format';
+				}
+				return $v;
+			},
+
+			// setAtPath uses checkArray/checkObject which say
+			// "setAtPath requires an {array|object} input, got TYPE";
+			// jq says "Cannot index TYPE_CONTAINER with {number|string} (VALUE)".
+			// Normalise jq's message to our format.
+			1258, 2494 =>
+			static function ( mixed $v ): mixed {
+				if ( is_string( $v ) && preg_match(
+					'/^Cannot index (\w+) with (number|string)/', $v, $m
+				) ) {
+					$req = $m[2] === 'number' ? 'array' : 'object';
+					return "setAtPath requires an {$req} input, got {$m[1]}";
 				}
 				return $v;
 			},

@@ -1310,7 +1310,7 @@ class JQCompile {
 	 * @param list<int|float|string> $path
 	 * @param int $offset The current offset into $path
 	 */
-	private static function getAtPath( mixed $val, array $path, int $offset ): mixed {
+	public static function getAtPath( mixed $val, array $path, int $offset ): mixed {
 		if ( $offset >= count( $path ) ) {
 			return $val;
 		}
@@ -1343,7 +1343,7 @@ class JQCompile {
 	 * @param int $offset The current offset into $path
 	 * @param mixed $newVal The value we expect to set at the end of the path
 	 */
-	private static function setAtPath( mixed $container, array $path, int $offset, mixed $newVal ): mixed {
+	public static function setAtPath( mixed $container, array $path, int $offset, mixed $newVal ): mixed {
 		if ( $offset >= count( $path ) ) {
 			return $newVal;
 		}
