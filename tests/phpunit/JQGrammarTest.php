@@ -36,13 +36,14 @@ class JQGrammarTest extends \PHPUnit\Framework\TestCase {
 	 *
 	 * @return list<array{fail?:true,query:string,label:string,input?:?string,expected?:?string}>
 	 */
-	public static function loadTests(): array {
-		static $tests = null;
-		if ( $tests !== null ) {
-			return $tests;
+	public static function loadTests( ?string $filename = null ): array {
+		$filename ??= self::testFilePath();
+		static $testCache = [];
+		if ( $testCache[$filename] ?? null ) {
+			return $testCache[$filename];
 		}
 		// Parse tests from input file
-		$lines = file( self::testFilePath(), FILE_IGNORE_NEW_LINES );
+		$lines = file( $filename, FILE_IGNORE_NEW_LINES );
 		$tests = [];
 		$i = 0;
 		$total = count( $lines );
@@ -99,6 +100,7 @@ class JQGrammarTest extends \PHPUnit\Framework\TestCase {
 				];
 			}
 		}
+		$testCache[$filename] = $tests;
 		return $tests;
 	}
 

@@ -13,10 +13,16 @@ use Wikimedia\Zest\JQUtils;
 
 /**
  * JQ evaluation tests driven by the upstream jq test suite from
- * https://github.com/jqlang/jq/blob/master/tests/jq.test
+ * https://github.com/jqlang/jq/blob/master/tests/jq.test and
+ * our own test collection in the same format at `local.test`.
  */
 class JQCompileTest extends \PHPUnit\Framework\TestCase {
 
+	// A list of tests from the upstream `jq.test` which we are
+	// going to skip, and a description of the reason the test is
+	// skipped.  Currently indexed by line number in the upstream
+	// file, which we might regret if upstream removes or rearranges
+	// tests.
 	public static function skipReason( string $label, int $lineno ): ?string {
 		return match ( $lineno ) {
 			// JSON cannot represent NaN or infinity; also affects 1E+1000 literals
@@ -81,45 +87,14 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 		};
 	}
 
-	public static function compileProvider(): iterable {
-		foreach ( JQGrammarTest::loadTests() as $test ) {
-			if ( !( $test['fail'] ?? false ) ) {
-				yield $test['label'] => [
-					$test['query'],
-					$test['input'],
-					$test['expected'],
-					fn ( $v ) => self::normalizeErrors( $v, $test['label'], $test['lineno'] ),
-					self::skipReason( $test['label'], $test['lineno'] ),
-				];
-			}
-		}
-	}
-
 	/**
-	 * Recursively apply $fn to every leaf value in a nested array/object tree.
-	 * Arrays and stdClass objects are traversed; $fn gets a chance to look
-	 * at (and normalize) every value, and the resulting objects are traversed.
+	 * Normalize error message strings so that minor wording
+	 * differences between our implementation and jq don't cause test
+	 * failures.
 	 */
-	private static function mapDeep( callable $fn, mixed $v ): mixed {
-		$v = $fn( $v );
-		if ( is_array( $v ) ) {
-			return array_map(
-				static fn ( $item ) => self::mapDeep( $fn, $item ), $v
-			);
-		} elseif ( is_object( $v ) ) {
-			return (object)array_map(
-				static fn ( $item ) => self::mapDeep( $fn, $item ), (array)$v
-			);
-		}
-		return $v;
-	}
-
-	/**
-	 * Normalize error message strings so that minor wording differences between
-	 * our implementation and jq don't cause test failures.  Currently strips
-	 * the trailing context from "Invalid path expression …" messages.
-	 */
-	private static function normalizeErrors( array $vals, string $label, int $lineno ): array {
+	private static function normalizeErrors(
+		array $vals, string $label, int $lineno
+	): array {
 		// Our implementation does not try to maintain exact error message
 		// compatibility with upstream, so here we try to normalize some
 		// acceptable differences in error messages, especially when the
@@ -285,8 +260,44 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 		return ( $norm === null ) ? $vals : self::mapDeep( $norm, $vals );
 	}
 
+	// These are tests from upstream's `jq.test`.  We shouldn't modify
+	// `jq.test`, but not all of the tests are guaranteed to pass due
+	// to inherent differences in the implementation.  Some we'll skip,
+	// and other's we'll just remap the expected result (usually to
+	// accomodate differences in error diagnostic output) so that
+	// we maintain coverage but accept a slightly different output.
+	public static function upstreamTestProvider(): iterable {
+		foreach ( JQGrammarTest::loadTests() as $test ) {
+			if ( !( $test['fail'] ?? false ) ) {
+				yield "jq.test " . $test['label'] => [
+					$test['query'],
+					$test['input'],
+					$test['expected'],
+					fn ( $v ) => self::normalizeErrors( $v, $test['label'], $test['lineno'] ),
+					self::skipReason( $test['label'], $test['lineno'] ),
+				];
+			}
+		}
+	}
+
+	// Use a similar format for local tests, but these should never fail
+	// nor need error normalization.
+	public static function localTestProvider(): iterable {
+		foreach ( JQGrammarTest::loadTests( __DIR__ . '/local.test' ) as $test ) {
+			$ln = $test['lineno'];
+			yield "local.test " . $test['label'] => [
+				$test['query'],
+				$test['input'],
+				$test['expected'],
+				static fn ( $v ) => $v,
+				$ln > 10 && $ln !== 40 ? "delPath not fixed yet" : null,
+			];
+		}
+	}
+
 	/**
-	 * @dataProvider compileProvider
+	 * @dataProvider upstreamTestProvider
+	 * @dataProvider localTestProvider
 	 * @covers \Wikimedia\Zest\JQCompile
 	 */
 	public function testCompile( string $query, string $input, array $expected, Closure $normalizeFn, ?string $skip = null ): void {
@@ -315,8 +326,9 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 		$result = [];
 		try {
 			foreach ( $eval( $input ) as $val ) {
-				// Deliberately dropping the keys from the generator here,
-				// so we don't get collisions we make a list out of the results.
+				// Deliberately dropping the keys from the generator
+				// here so we don't get collisions when we make a list
+				// out of the results.
 				$result[] = $val;
 			}
 		} catch ( JQError $e ) {
@@ -335,5 +347,26 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 			JQUtils::compare( $normalizeFn( $expected ), $normalizeFn( $result ) ) === 0,
 			"got: " . $e( $result ) . ", but expected: " . $e( $expected )
 		);
+	}
+
+	// Helper function
+
+	/**
+	 * Recursively apply $fn to every leaf value in a nested array/object tree.
+	 * Arrays and stdClass objects are traversed; $fn gets a chance to look
+	 * at (and normalize) every value, and the resulting objects are traversed.
+	 */
+	private static function mapDeep( callable $fn, mixed $v ): mixed {
+		$v = $fn( $v );
+		if ( is_array( $v ) ) {
+			return array_map(
+				static fn ( $item ) => self::mapDeep( $fn, $item ), $v
+			);
+		} elseif ( is_object( $v ) ) {
+			return (object)array_map(
+				static fn ( $item ) => self::mapDeep( $fn, $item ), (array)$v
+			);
+		}
+		return $v;
 	}
 }

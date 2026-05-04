@@ -1,0 +1,50 @@
+# Tests are groups of three lines: program, input, expected output
+# Blank lines and lines starting with # are ignored
+
+# These are local tests, specific to our PHP implementation.
+
+# Documenting that slices are visible in the output as objects,
+# that negative indices are not normalized in `path/1` output,
+# and that duplicates are not removed.
+path(.[-3:9],.[-3],.[-3])
+null
+[{"start":-3,"end":9}]
+[-3]
+[-3]
+
+# Upstream is inconsistent in handling of negative array indices:
+# https://github.com/jqlang/jq/issues/3538
+del(.[-6],.[6],.[6])
+[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+[0,1,2,3,5,7,8,9]
+
+del(.[0][-6],.[0][6],.[0][6])
+[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]]
+[[0,1,2,3,5,7,8,9]]
+
+del(.[-1][-6],.[-1][6],.[-1][6])
+[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]]
+[[0,1,2,3,5,7,8,9]]
+
+# if we mix positive and negative indices, we should still get the
+# same result
+del(.[-1][-6],.[0][6],.[-1][6])
+[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]]
+[[0,1,2,3,5,7,8,9]]
+
+del(.[0][-6],.[-1][6],.[0][6])
+[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]]
+[[0,1,2,3,5,7,8,9]]
+
+# this should interact properly with slices as well
+del(.[0][-6],.[0][6],.[0][6],.[0][3:8])
+[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]]
+[[0,1,2,8,9]]
+
+del(.[0][-6],.[0][6],.[0][6],.[-1][-7:-2])
+[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]]
+[[0,1,2,8,9]]
+
+del(.[-1][-6],.[-1][6],.[-1][6],.[0][1:4])
+[[0, 1, 2, 3, 4, 5, 6, 7, 8, 9]]
+[[0,5,7,8,9]]
