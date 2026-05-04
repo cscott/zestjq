@@ -58,8 +58,8 @@ abstract class JQEnv {
 	 * @return ?Closure(mixed,JQEnv):Generator a Filter, or
 	 *   null if the binding doesn't exists
 	 */
-	public function lookup( string $name, int $arity ): ?Closure {
-		return $this->parent?->lookup( $name, $arity );
+	public function lookup( string $name, int $arity, bool $cache = true ): ?Closure {
+		return $this->parent?->lookup( $name, $arity, $cache );
 	}
 
 	/**

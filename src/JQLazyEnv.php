@@ -27,11 +27,11 @@ class JQLazyEnv extends JQEnv {
 	}
 
 	/** @inheritDoc */
-	public function lookup( string $name, int $arity ): ?Closure {
+	public function lookup( string $name, int $arity, bool $cache = true ): ?Closure {
 		if ( $this->resolved === null ) {
 			// Maybe this is a built-in; try to resolve in the
 			// top level env
-			$binding = parent::lookup( $name, $arity );
+			$binding = parent::lookup( $name, $arity, $cache );
 			if ( $binding !== null ) {
 				return $binding;
 			}
@@ -39,6 +39,6 @@ class JQLazyEnv extends JQEnv {
 			// @phan-suppress-next-line PhanTypeMismatchArgumentSuperType
 			$this->resolved = self::buildStandardEnv( $this->parent );
 		}
-		return $this->resolved->lookup( $name, $arity );
+		return $this->resolved->lookup( $name, $arity, $cache );
 	}
 }

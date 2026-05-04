@@ -57,7 +57,8 @@ class JQTopLevelEnv extends JQEnv {
 	}
 
 	/** @inheritDoc */
-	public function lookup( string $name, int $arity ): ?Closure {
+	// @phan-suppress-next-line PhanUnusedPublicMethodParameter
+	public function lookup( string $name, int $arity, bool $cache = true ): ?Closure {
 		return $this->builtins["{$name}/{$arity}"] ?? null;
 	}
 

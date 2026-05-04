@@ -30,12 +30,24 @@ class JQBindEnv extends JQEnv {
 		parent::__construct( $parent, $io );
 	}
 
+	private ?array $localCache = null;
+
 	/** @inheritDoc */
-	public function lookup( string $name, int $arity ): ?Closure {
+	public function lookup( string $name, int $arity, bool $cache = true ): ?Closure {
 		$key = "{$name}/{$arity}";
 		if ( $this->key === $key ) {
 			return $this->binding;
 		}
-		return parent::lookup( $name, $arity );
+		if ( $this->localCache !== null && array_key_exists( $key, $this->localCache ) ) {
+			return $this->localCache[$key];
+		}
+		// Don't cache in the recursive lookup, it would be redundant.
+		$result = parent::lookup( $name, $arity, cache: false );
+		if ( $cache ) {
+			// Note that we cache even negative lookups ($result = null)
+			$this->localCache ??= [];
+			$this->localCache[$key] = $result;
+		}
+		return $result;
 	}
 }
