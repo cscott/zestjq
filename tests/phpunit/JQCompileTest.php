@@ -61,9 +61,9 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 			2014 =>
 			'Error message format differs from jq',
 
-			// indices/1 doesn't support overlapping string matches or array needles
-			1548, 1581, 1585, 1589 =>
-			'indices/1 does not support overlapping string matches or array-needle searches on arrays',
+			// indices/1 doesn't support array needles on arrays
+			1581, 1585, 1589 =>
+			'indices/1 does not support array-needle searches on arrays',
 
 			// bsearch/1 not yet implemented
 			1827, 1835, 1839 =>

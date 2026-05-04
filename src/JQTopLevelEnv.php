@@ -632,17 +632,23 @@ class JQTopLevelEnv extends JQEnv {
 				foreach ( $needleFn( $input, $env ) as $needle ) {
 					$needle  = JQUtils::checkString( '_strindices', $needle );
 					$indices = [];
-					// explode() splits on the byte sequence of $needle in O(N).
-					// mb_strlen() of each piece gives the codepoint distance to
-					// the next match, avoiding O(N^2) repeated mb_strpos scans.
-					$pieces        = $needle ? explode( $needle, $str ) : [];
-					$needleCharLen = mb_strlen( $needle );
-					$charPos       = 0;
-					$last          = count( $pieces ) - 1;
-					for ( $i = 0; $i < $last; $i++ ) {
-						$charPos  += mb_strlen( $pieces[$i] );
-						$indices[] = $charPos;
-						$charPos  += $needleCharLen;
+					if ( $needle !== '' ) {
+						// Lookahead (?=...) finds overlapping
+						// matches; preg_split on it gives the pieces
+						// between split points.  mb_strlen of each
+						// piece gives the cumulative codepoint offset
+						// to the next match.
+						$pieces  = preg_split(
+							'/(?=' . preg_quote( $needle, '/' ) . ')/su',
+							$str
+						);
+						$charPos = 0;
+						foreach ( $pieces as $p ) {
+							$charPos  += mb_strlen( $p );
+							$indices[] = $charPos;
+						}
+						// last element is just the strlen of $input
+						array_pop( $indices );
 					}
 					yield $indices;
 				}
