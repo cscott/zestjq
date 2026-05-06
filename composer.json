@@ -1,0 +1,55 @@
+{
+	"name": "wikimedia/zest-jq",
+	"description": "Implementation of 'jq' JSON-filter language",
+	"license": "MIT",
+	"homepage": "https://www.mediawiki.org/wiki/ZestJQ",
+	"authors": [
+		{
+			"name": "C. Scott Ananian",
+			"email": "cananian@wikimedia.org"
+		}
+	],
+	"autoload": {
+		"psr-4": {
+			"Wikimedia\\ZestJQ\\": "src/"
+		}
+	},
+	"autoload-dev": {
+		"psr-4": {
+			"Wikimedia\\ZestJQ\\Tests\\": "tests/phpunit/"
+		}
+	},
+	"require": {
+		"php": ">=8.1"
+	},
+	"require-dev": {
+		"mediawiki/mediawiki-codesniffer": "51.0.0",
+		"mediawiki/mediawiki-phan-config": "0.20.0",
+		"mediawiki/minus-x": "2.0.1",
+		"ockcyp/covers-validator": "1.7.0",
+		"php-parallel-lint/php-console-highlighter": "1.0.0",
+		"php-parallel-lint/php-parallel-lint": "1.4.0",
+		"phpunit/phpunit": "10.5.63"
+	},
+	"scripts": {
+		"test": [
+			"parallel-lint . --exclude vendor",
+			"phpunit",
+			"covers-validator",
+			"phpcs -sp",
+			"@phan",
+			"minus-x check ."
+		],
+		"phan": "phan --allow-polyfill-parser",
+		"cover": "phpunit --coverage-html coverage",
+		"fix": [
+			"phpcbf",
+			"minus-x fix ."
+		]
+	},
+	"config": {
+		"allow-plugins": {
+			"dealerdirect/phpcodesniffer-composer-installer": true
+		}
+	}
+}
