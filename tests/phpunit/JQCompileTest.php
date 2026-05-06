@@ -38,20 +38,6 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 			1993 =>
 			'Module-level directives not implemented',
 
-			// del() bugs:
-			// 1184: mixed integer+slice deletion — e.g. del(.[1],.[2],[-3:9]):
-			//   slice keys (stdClass, rank 6) sort before integer keys (rank 3)
-			//   in reversed JQUtils::compare, so slices are always deleted first;
-			//   but when an integer index >= slice.start, removing the slice shifts
-			//   the element, so the integer deletion then misses or hits the wrong
-			//   position.  Correct handling requires path adjustment after each
-			//   deletion (tracking how each splice shifts later indices), which is
-			//   not yet implemented.
-			// There's also an upstream bug here:
-			//   https://github.com/jqlang/jq/issues/3538
-			1184 =>
-			'del() has a bug with mixed integer+slice overlapping deletion',
-
 			// various error message format differences
 			// 2014: large-float number representation in error messages differs
 			// (jq: "12345678901234568000000000...", PHP: "1.2345678901234568E+29")
@@ -282,9 +268,6 @@ class JQCompileTest extends \PHPUnit\Framework\TestCase {
 
 	public static function localSkipReason( string $label, int $lineno ): ?string {
 		return match ( $lineno ) {
-			// del() with mixed negative/positive indices and slices — not yet fixed;
-			// see also https://github.com/jqlang/jq/issues/3538
-			27, 32, 37, 42, 47, 57, 62 => 'delPath not fixed yet',
 			default => null,
 		};
 	}

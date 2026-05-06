@@ -1439,26 +1439,26 @@ class JQCompile {
 	 * @param list<list<int|float|string|object>> $paths
 	 */
 	public static function deleteAtPaths( mixed $container, array $paths ): mixed {
-		// Process paths in reverse order so that deleting an array element
-		// by index doesn't shift the positions of later indices.
-		usort( $paths, static fn ( $a, $b ) => -JQUtils::compare( $a, $b ) );
 		$result = $container;
+		// Create a unique sentinel value that will stand in for array
+		// elements which are to be deleted.
+		$tombstone = (object)[];
+		$tombstonePaths = [];
 		foreach ( $paths as $path ) {
-			$result = self::deleteAtPath( $result, $path, 0 );
+			$result = self::deleteAtPath( $result, $path, 0, $tombstone, $tombstonePaths );
+		}
+		// Process tombstone paths deepest (longest) to shallowest, so that
+		// all children have been compacted before we compact the parent.
+		usort( $tombstonePaths, static fn ( $b, $a ) =>
+			   count( $a ) <=> count( $b ) ?: JQUtils::compare( $a, $b )
+		);
+		foreach ( array_unique( $tombstonePaths, SORT_REGULAR ) as $path ) {
+			$result = self::compactAtPath( $result, $path, 0, $tombstone );
 		}
 		return $result;
 	}
 
-	/**
-	 * Return $container with the slot at $path removed.
-	 * Array elements are spliced out (later elements shift left); object keys are unset.
-	 * Non-existent paths are silently ignored.
-	 *
-	 * @param mixed $container
-	 * @param list<int|float|string> $path
-	 * @param int $offset The current offset into $path
-	 */
-	public static function deleteAtPath( mixed $container, array $path, int $offset ): mixed {
+	private static function deleteAtPath( mixed $container, array $path, int $offset, object $tombstone, array &$tombstonePaths ): mixed {
 		if ( $offset >= count( $path ) ) {
 			return null;
 		}
@@ -1469,14 +1469,14 @@ class JQCompile {
 					return $container;
 				}
 				$new       = clone $container;
-				$new->$key = self::deleteAtPath( $container->$key, $path, $offset );
+				$new->$key = self::deleteAtPath( $container->$key, $path, $offset, $tombstone, $tombstonePaths );
 				return $new;
 			}
 			if ( JQUtils::isNumber( $key ) && is_array( $container ) ) {
 				$idx = JQUtils::adjustIndex( 'deleteAtPath', $key, $container );
-				if ( $idx !== null ) {
+				if ( $idx !== null && $container[$idx] !== $tombstone ) {
 					$new       = $container;
-					$new[$idx] = self::deleteAtPath( $container[$idx], $path, $offset );
+					$new[$idx] = self::deleteAtPath( $container[$idx], $path, $offset, $tombstone, $tombstonePaths );
 					return $new;
 				}
 			}
@@ -1489,9 +1489,10 @@ class JQCompile {
 		}
 		if ( JQUtils::isNumber( $key ) && is_array( $container ) ) {
 			$index = JQUtils::adjustIndex( 'deleteAtPath', $key, $container );
-			if ( $index !== null ) {
+			if ( $index !== null && $container[$index] !== $tombstone ) {
 				$newArr = $container;
-				array_splice( $newArr, $index, 1 );
+				$newArr[$index] = $tombstone;
+				$tombstonePaths[] = array_slice( $path, 0, -1 );
 				return $newArr;
 			}
 		}
@@ -1506,8 +1507,44 @@ class JQCompile {
 			$f   = JQUtils::normalizeSliceIdx( $key->start ?? null, $len, 0, floor: true );
 			$t   = JQUtils::normalizeSliceIdx( $key->end ?? null, $len, $len, ceil: true );
 			$newArr = $container;
-			array_splice( $newArr, $f, max( 0, $t - $f ) );
-			return array_values( $newArr );
+			$sawTombstone = false;
+			for ( $i = $f; $i < $t; $i++ ) {
+				$sawTombstone = $sawTombstone || ( $newArr[$i] === $tombstone );
+				$newArr[$i] = $tombstone;
+			}
+			if ( !$sawTombstone ) {
+				// Optimization: If we saw a tombstone, this array is already
+				// on the tombstonePaths list.
+				$tombstonePaths[] = array_slice( $path, 0, -1 );
+			}
+			return $newArr;
+		}
+		return $container;
+	}
+
+	private static function compactAtPath( mixed $container, array $path, int $offset, object $tombstone ): mixed {
+		if ( $offset >= count( $path ) ) {
+			$container = JQUtils::checkArray( 'compactAtPath', $container );
+			return array_values( array_filter(
+				$container, static fn ( $v ) => ( $v !== $tombstone )
+			) );
+		}
+		$key = $path[$offset++];
+		if ( is_string( $key ) && is_object( $container ) ) {
+			if ( !property_exists( $container, $key ) ) {
+				return $container;
+			}
+			$new       = clone $container;
+			$new->$key = self::compactAtPath( $container->$key, $path, $offset, $tombstone );
+			return $new;
+		}
+		if ( JQUtils::isNumber( $key ) && is_array( $container ) ) {
+			$idx = JQUtils::adjustIndex( 'compactAtPath', $key, $container );
+			if ( $idx !== null && $container[$idx] !== $tombstone ) {
+				$new       = $container;
+				$new[$idx] = self::compactAtPath( $container[$idx], $path, $offset, $tombstone );
+				return $new;
+			}
 		}
 		return $container;
 	}
