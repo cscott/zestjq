@@ -74,6 +74,20 @@ abstract class JQEnv {
 		return self::$stdEnv;
 	}
 
+	/**
+	 * Extend the given environment with the definitions in $defs.
+	 */
+	public function extendEnv( string $defs, ?string $filename = null ): JQEnv {
+		$filename ??= '<definitions>';
+		$f = JQ::compile( "{$defs}\n__env__", $filename, $this );
+		foreach ( $f( null ) as $val ) {
+			if ( $val instanceof JQEnv ) {
+				return $val;
+			}
+		}
+		throw new JQError( __METHOD__ . ': __env__ was not yielded' );
+	}
+
 	protected static function buildStandardEnv( ?JQTopLevelEnv $topLevelEnv = null ): JQEnv {
 		// The standard environment is built with a null IOContext
 		$topLevelEnv ??= new JQTopLevelEnv( new IOContext );
@@ -84,7 +98,7 @@ abstract class JQEnv {
 				return $val;
 			}
 		}
-		throw new \RuntimeException( __METHOD__ . ': __env__ was not yielded' );
+		throw new LogicException( __METHOD__ . ': __env__ was not yielded' );
 	}
 
 	// -----------------------------------------------------------------------
