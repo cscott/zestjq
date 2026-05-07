@@ -13,33 +13,32 @@ namespace Wikimedia\ZestJQ;
 
 use stdClass;
 
+/*
+ * PEG grammar for the JQ expression language.
+ * Translated from jqlang/jq src/parser.y.
+ *
+ * AST node arrays have a 'type' key; important types:
+ *   identity, literal (value), variable (name), format (fmt)
+ *   pipe (left, right), comma (left, right), alternative (left, right)
+ *   or (left, right), and (left, right), compare (op, left, right)
+ *   neg (expr), binop (op, left, right)
+ *   try (body, catch), bind (expr, pattern, body)
+ *   field (expr, name, opt), index (expr, key, opt)
+ *   iter (expr, opt), slice (expr, from, to, opt)
+ *   array (expr), object (pairs[{key,value}])
+ *   call (name, args[]), def (name, params[], body, rest)
+ *   if (cond, then, else), reduce (src, pattern, init, update)
+ *   foreach (src, pattern, init, update, extract)
+ *   label (name, body), break (name),
+ *   string (parts[])  -- interpolated strings
+ */
+
 
 
 
 class JQGrammar extends \Wikimedia\WikiPEG\PEGParserBase {
 	// initializer
-	
-    /*
-     * PEG grammar for the JQ expression language.
-     * Translated from jqlang/jq src/parser.y.
-     *
-     * Module/import/include and pattern matching beyond $var are stubbed.
-     *
-     * AST node arrays have a 'type' key; important types:
-     *   identity, literal (value), variable (name), format (fmt)
-     *   pipe (left, right), comma (left, right), alternative (left, right)
-     *   or (left, right), and (left, right), compare (op, left, right)
-     *   neg (expr), binop (op, left, right)
-     *   try (body, catch), bind (expr, pattern, body)
-     *   field (expr, name, opt), index (expr, key, opt)
-     *   iter (expr, opt), slice (expr, from, to, opt)
-     *   array (expr), object (pairs[{key,value}])
-     *   call (name, args[]), def (name, params[], body, rest)
-     *   if (cond, then, else), reduce (src, pattern, init, update)
-     *   foreach (src, pattern, init, update, extract)
-     *   label (name, body), break (name),
-     *   string (parts[])  -- interpolated strings
-     */
+	 // PHP
 
     /** Filename used in `$__loc__` reporting. */
     private string $filename = '';
@@ -130,6 +129,16 @@ class JQGrammar extends \Wikimedia\WikiPEG\PEGParserBase {
     /** Parse a decimal number string to a float. */
     private function floatVal( string $n ): float {
         return (float)$n;
+    }
+
+    /** Return the number of elements in an array. */
+    private function count( array $arr ): int {
+        return count( $arr );
+    }
+
+    /** Return the length of a string in bytes. */
+    private function strlen( string $s ): int {
+        return strlen( $s );
     }
 
 
@@ -250,7 +259,7 @@ private function a6($left, $right) {
 }
 private function a7($fmt, $parts) {
 
-        if ( $fmt === null && count( $parts ) === 1 && $parts[0]['type'] === 'str_text' ) {
+        if ( $fmt === null && $this->count( $parts ) === 1 && $parts[0]['type'] === 'str_text' ) {
             return [ 'type' => 'literal', 'value' => $parts[0]['text'] ];
         }
         return [ 'type' => 'string', 'fmt' => $fmt, 'parts' => $parts ];
@@ -270,7 +279,7 @@ private function a11($left, $right) {
 }
 private function a12($first, $rest) {
 
-        if ( !$rest ) {
+        if ( $this->count($rest) === 0 ) {
             return $first;
         }
         return [ 'type' => 'alt_pattern', 'patterns' => [ $first, ...$rest ] ];
@@ -280,7 +289,7 @@ private function a13($first, $rest) {
    return $this->foldLeft( $first, $rest, 'comma' ); 
 }
 private function a14($slashes) {
- return (strlen($slashes)%2)===1; 
+ return ($this->strlen($slashes)%2)===1; 
 }
 private function a15($expr) {
  return [ 'type' => 'str_interp', 'expr' => $expr ]; 

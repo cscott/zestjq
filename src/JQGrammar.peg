@@ -4,30 +4,29 @@ declare( strict_types = 1 );
 namespace Wikimedia\ZestJQ;
 
 use stdClass;
+
+/*
+ * PEG grammar for the JQ expression language.
+ * Translated from jqlang/jq src/parser.y.
+ *
+ * AST node arrays have a 'type' key; important types:
+ *   identity, literal (value), variable (name), format (fmt)
+ *   pipe (left, right), comma (left, right), alternative (left, right)
+ *   or (left, right), and (left, right), compare (op, left, right)
+ *   neg (expr), binop (op, left, right)
+ *   try (body, catch), bind (expr, pattern, body)
+ *   field (expr, name, opt), index (expr, key, opt)
+ *   iter (expr, opt), slice (expr, from, to, opt)
+ *   array (expr), object (pairs[{key,value}])
+ *   call (name, args[]), def (name, params[], body, rest)
+ *   if (cond, then, else), reduce (src, pattern, init, update)
+ *   foreach (src, pattern, init, update, extract)
+ *   label (name, body), break (name),
+ *   string (parts[])  -- interpolated strings
+ */
 }
 
-{
-    /*
-     * PEG grammar for the JQ expression language.
-     * Translated from jqlang/jq src/parser.y.
-     *
-     * Module/import/include and pattern matching beyond $var are stubbed.
-     *
-     * AST node arrays have a 'type' key; important types:
-     *   identity, literal (value), variable (name), format (fmt)
-     *   pipe (left, right), comma (left, right), alternative (left, right)
-     *   or (left, right), and (left, right), compare (op, left, right)
-     *   neg (expr), binop (op, left, right)
-     *   try (body, catch), bind (expr, pattern, body)
-     *   field (expr, name, opt), index (expr, key, opt)
-     *   iter (expr, opt), slice (expr, from, to, opt)
-     *   array (expr), object (pairs[{key,value}])
-     *   call (name, args[]), def (name, params[], body, rest)
-     *   if (cond, then, else), reduce (src, pattern, init, update)
-     *   foreach (src, pattern, init, update, extract)
-     *   label (name, body), break (name),
-     *   string (parts[])  -- interpolated strings
-     */
+{ // PHP
 
     /** Filename used in `$__loc__` reporting. */
     private string $filename = '';
@@ -119,10 +118,118 @@ use stdClass;
     private function floatVal( string $n ): float {
         return (float)$n;
     }
+
+    /** Return the number of elements in an array. */
+    private function count( array $arr ): int {
+        return count( $arr );
+    }
+
+    /** Return the length of a string in bytes. */
+    private function strlen( string $s ): int {
+        return strlen( $s );
+    }
+}
+
+{ // JavaScript
+    /**
+     * PEG grammar for the JQ expression language.
+     * Translated from jqlang/jq src/parser.y.
+     */
+
+    /** Build a `$__loc__` object for the current parse position. */
+    function makeLoc() {
+        return { file: options.filename ?? '<top-level>', line: location().start.line };
+    }
+
+    /** Wrap left/right in a binary node, or return left if right is absent. */
+    function build(left, right, type) {
+        if (right === null) { return left; }
+        return { type: type, left: left, right: right };
+    }
+
+    /** Like build(), but right is [op, operand] and the node gets an 'op' key. */
+    function buildOp(left, right, type) {
+        if (right === null) { return left; }
+        return { type: type, op: right[0], left: left, right: right[1] };
+    }
+
+    /** Left-fold a list of [op, operand] pairs into a left-associative op tree. */
+    function foldLeftOp(first, rest, type) {
+        var node = first;
+        for (var i = 0; i < rest.length; i++) {
+            node = { type: type, op: rest[i][0], left: node, right: rest[i][1] };
+        }
+        return node;
+    }
+
+    /** Left-fold a list of operands into a left-associative binary tree. */
+    function foldLeft(first, rest, type) {
+        var node = first;
+        for (var i = 0; i < rest.length; i++) {
+            node = { type: type, left: node, right: rest[i] };
+        }
+        return node;
+    }
+
+    /** Attach one postfix suffix to an expression node. */
+    function applyPostfix(expr, suffix) {
+        if (suffix.type === 'try') {
+            return { type: 'try', body: expr, catch: suffix.catch };
+        }
+        return Object.assign({}, suffix, { expr: expr });
+    }
+
+    /** Apply a list of postfix suffixes left-to-right to an expression. */
+    function buildPostfix(expr, suffixes) {
+        var node = expr;
+        for (var i = 0; i < suffixes.length; i++) {
+            node = applyPostfix(node, suffixes[i]);
+        }
+        return node;
+    }
+
+    /** Concatenate an array of single characters into a string. */
+    function strJoin(chars) {
+        return chars.join('');
+    }
+
+    var escapes = {
+        a: '\x07', b: '\b', f: '\f', n: '\n', r: '\r', t: '\t',
+    };
+
+    /** Decode a C-style backslash escape sequence (e.g. `\n`, `\t`). */
+    function unescapeCStr(c) {
+        return escapes[c[1]] || c[1];
+    }
+
+    /** Decode a `\uXXXX` Unicode escape to a UTF-8 character. */
+    function decodeUnicodeEscape(c) {
+        return JSON.parse('"' + c + '"');
+    }
+
+    /** Parse a decimal integer string to an int. */
+    function intVal(n) {
+        return parseInt(n, 10);
+    }
+
+    /** Parse a decimal number string to a float. */
+    function floatVal(n) {
+        return parseFloat(n);
+    }
+
+    /** Return the number of elements in an array. */
+    function count(arr) {
+        return arr.length;
+    }
+
+    /** Return the length of a string in characters. */
+    function strlen(s) {
+        return s.length;
+    }
 }
 
 /* ================================================================== */
-/*  Entry point                                                         */
+/*  Entry point                                                       */
 /* ================================================================== */
 
 start = _ @Query _
@@ -130,8 +237,8 @@ start = _ @Query _
 Query = @Pipe
 
 /* ================================================================== */
-/*  Pipe  |   right-associative, lowest precedence                      */
-/*  Also handles def, "as" binding, and label at this level.           */
+/*  Pipe  |   right-associative, lowest precedence                    */
+/*  Also handles def, "as" binding, and label at this level.          */
 /* ================================================================== */
 
 Pipe
@@ -153,10 +260,10 @@ Pipe
     { return $this->build( $left, $right, 'pipe' ); }
 
 /* ================================================================== */
-/*  Comma  ,   left-associative; generates multiple outputs            */
+/*  Comma, left-associative; generates multiple outputs               */
 /*  The right side of a comma can open a new def/as/label scope,      */
-/*  matching the upstream Query production where all these share the   */
-/*  same precedence level.                                             */
+/*  matching the upstream Query production where all these share the  */
+/*  same precedence level.                                            */
 /* ================================================================== */
 
 Comma
@@ -183,7 +290,7 @@ CommaRHS
 Expr = Alt
 
 /* ================================================================== */
-/*  Alternative  //   right-associative                                */
+/*  Alternative  //   right-associative                               */
 /* ================================================================== */
 
 Alt
@@ -202,7 +309,7 @@ AssignOp "assignment operator"
   = "//=" / "|=" / "+=" / "-=" / "*=" / "/=" / "%=" / "="
 
 /* ================================================================== */
-/*  Boolean  or / and   left-associative                               */
+/*  Boolean  or / and   left-associative                              */
 /* ================================================================== */
 
 Or
@@ -214,7 +321,7 @@ And
     { return $this->foldLeft( $first, $rest, 'and' ); }
 
 /* ================================================================== */
-/*  Comparisons   == != < > <= >=   non-associative                    */
+/*  Comparisons   == != < > <= >=   non-associative                   */
 /* ================================================================== */
 
 Cmp
@@ -225,7 +332,7 @@ CmpOp "comparison operator"
   = "==" / "!=" / "<=" / ">=" / "<" / ">"
 
 /* ================================================================== */
-/*  Additive  + -   left-associative                                   */
+/*  Additive  + -   left-associative                                  */
 /* ================================================================== */
 
 Add
@@ -233,8 +340,8 @@ Add
     { return $this->foldLeftOp( $first, $rest, 'binop' ); }
 
 /* ================================================================== */
-/*  Multiplicative  * / %   left-associative                           */
-/*  '/' must not consume the first '/' of the '//' alternative op.     */
+/*  Multiplicative  * / %   left-associative                          */
+/*  '/' must not consume the first '/' of the '//' alternative op.    */
 /* ================================================================== */
 
 Mul
@@ -245,13 +352,13 @@ MulOp "multiplicative operator"
   = "*" / "%" / @"/" !"/"
 
 /* ================================================================== */
-/*  Postfix operations   highest-precedence, left-associative          */
-/*    expr?           try (suppress errors / empty)                    */
-/*    expr.name?      field access (opt = error-suppressed)            */
-/*    expr[]?         iterator                                          */
-/*    expr[key]?      index                                             */
-/*    expr[from:to]?  slice                                             */
-/*  The '.' before '[' is optional: expr.[n] and expr[n] are the same. */
+/*  Postfix operations   highest-precedence, left-associative         */
+/*    expr?           try (suppress errors / empty)                   */
+/*    expr.name?      field access (opt = error-suppressed)           */
+/*    expr[]?         iterator                                        */
+/*    expr[key]?      index                                           */
+/*    expr[from:to]?  slice                                           */
+/*  The '.' before '[' is optional: expr.[n] and expr[n] are the same.*/
 /* ================================================================== */
 
 Postfix
@@ -280,7 +387,7 @@ SliceBound = @Query?
 OptQ = _ "?" { return true; } / "" { return false; }
 
 /* ================================================================== */
-/*  Atomic terms                                                        */
+/*  Atomic terms                                                      */
 /* ================================================================== */
 
 Term
@@ -381,7 +488,7 @@ Term
     { return [ 'type' => 'call', 'name' => $name, 'args' => [/*array*/] ]; }
 
 /* ================================================================== */
-/*  Control-flow helpers                                                */
+/*  Control-flow helpers                                              */
 /* ================================================================== */
 
 ElseBody
@@ -397,7 +504,7 @@ TryCatch = "catch" !IdentChar _ @Postfix
 ForeachExtract = _ ";" _ @Query
 
 /* ================================================================== */
-/*  Object constructor pairs                                            */
+/*  Object constructor pairs                                          */
 /* ================================================================== */
 
 DictPairs
@@ -442,7 +549,7 @@ DictExpr
   { return $this->build( $left, $right, 'pipe' ); }
 
 /* ================================================================== */
-/*  Function definition helpers                                         */
+/*  Function definition helpers                                       */
 /* ================================================================== */
 
 FuncParams
@@ -480,7 +587,7 @@ FuncName "function name"
     @Name
 
 /* ================================================================== */
-/*  Pattern matching (used in "as", reduce, foreach)                   */
+/*  Pattern matching (used in "as", reduce, foreach)                  */
 /*  Full patterns: $var, [$a,$b], {key:$var}                          */
 /* ================================================================== */
 
@@ -488,7 +595,7 @@ FuncName "function name"
 Patterns
   = first:Pattern rest:(_ "?//" _ @Pattern)*
     {
-        if ( !$rest ) {
+        if ( $this->count($rest) === 0 ) {
             return $first;
         }
         return [ 'type' => 'alt_pattern', 'patterns' => [ $first, ...$rest ] ];
@@ -523,15 +630,16 @@ ObjPatKey
   / name:Name { return [ 'type' => 'literal', 'value' => $name ]; }
 
 /* ================================================================== */
-/*  String literals                                                     */
-/*  JQ strings are double-quoted with \(expr) interpolation.           */
-/*  Single-quoted strings are not JQ syntax but accepted here for CSS. */
+/*  String literals                                                   */
+/*  JQ strings are double-quoted with \(expr) interpolation.          */
+/*  Single-quoted strings are not JQ syntax but accepted here as an   */
+/*  extension.                                                        */
 /* ================================================================== */
 
 String "string"
   = fmt:("@" @Name _ )? '"' parts:QQPart* '"'
     {
-        if ( $fmt === null && count( $parts ) === 1 && $parts[0]['type'] === 'str_text' ) {
+        if ( $fmt === null && $this->count( $parts ) === 1 && $parts[0]['type'] === 'str_text' ) {
             return [ 'type' => 'literal', 'value' => $parts[0]['text'] ];
         }
         return [ 'type' => 'string', 'fmt' => $fmt, 'parts' => $parts ];
@@ -553,7 +661,7 @@ SingleChar
   / [^\\]
 
 /* ================================================================== */
-/*  Numeric literals                                                    */
+/*  Numeric literals                                                  */
 /* ================================================================== */
 
 Number "number"
@@ -563,7 +671,7 @@ Number "number"
     { return [ 'type' => 'literal', 'value' => $this->floatVal( $n ) ]; }
 
 /* ================================================================== */
-/*  Lexical rules                                                        */
+/*  Lexical rules                                                     */
 /* ================================================================== */
 
 /* An unquoted identifier; supports module::name qualified identifiers */
@@ -579,7 +687,7 @@ IdentChar = [a-zA-Z0-9_]
 LineComment = $("#" (EscapedNewline / [^\n])* )
 
 /* A newline preceded by an odd number of slashes does not end a LineComment */
-EscapedNewline = slashes:$("\\"+) "\n" &{ return (strlen($slashes)%2)===1; } @""
+EscapedNewline = slashes:$("\\"+) "\n" &{ return ($this->strlen($slashes)%2)===1; } @""
 
 /* Optional whitespace and line comments */
 _ = ( [ \t\n\r]+ / LineComment )*
