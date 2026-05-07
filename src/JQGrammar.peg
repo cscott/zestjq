@@ -36,6 +36,7 @@ use stdClass;
          $this->filename = $this->options['filename'] ?? '<top-level>';
     }
 
+    /** Build a `$__loc__` object for the current parse position. */
     protected function makeLoc(): stdClass {
         return (object)[
 	    'file' => $this->filename,
@@ -43,21 +44,24 @@ use stdClass;
 	];
     }
 
-    private static function build( array $left, ?array $right, string $type ): array {
+    /** Wrap left/right in a binary node, or return left if right is absent. */
+    private function build( array $left, ?array $right, string $type ): array {
         if ($right === null) {
 	    return $left;
 	}
 	return [ 'type' => $type, 'left' => $left, 'right' => $right ];
     }
 
-    private static function buildOp( array $left, ?array $right, string $type ): array {
+    /** Like build(), but right is [op, operand] and the node gets an 'op' key. */
+    private function buildOp( array $left, ?array $right, string $type ): array {
         if ($right === null) {
 	    return $left;
 	}
 	return [ 'type' => $type, 'op' => $right[0], 'left' => $left, 'right' => $right[1] ];
     }
 
-    private static function foldLeftOp( array $first, array $rest, string $type ): array {
+    /** Left-fold a list of [op, operand] pairs into a left-associative op tree. */
+    private function foldLeftOp( array $first, array $rest, string $type ): array {
         $node = $first;
         foreach ( $rest as [ $op, $right ] ) {
             $node = [ 'type' => $type, 'op' => $op, 'left' => $node, 'right' => $right ];
@@ -65,7 +69,8 @@ use stdClass;
         return $node;
     }
 
-    private static function foldLeft( array $first, array $rest, string $type ): array {
+    /** Left-fold a list of operands into a left-associative binary tree. */
+    private function foldLeft( array $first, array $rest, string $type ): array {
         $node = $first;
         foreach ( $rest as $right ) {
             $node = [ 'type' => $type, 'left' => $node, 'right' => $right ];
@@ -73,11 +78,46 @@ use stdClass;
         return $node;
     }
 
-    private static function applyPostfix( array $expr, array $suffix ): array {
+    /** Attach one postfix suffix to an expression node. */
+    private function applyPostfix( array $expr, array $suffix ): array {
         if ( $suffix['type'] === 'try' ) {
             return [ 'type' => 'try', 'body' => $expr, 'catch' => $suffix['catch'] ];
         }
         return array_merge( $suffix, [ 'expr' => $expr ] );
+    }
+
+    /** Apply a list of postfix suffixes left-to-right to an expression. */
+    private function buildPostfix( array $expr, array $suffixes ): array {
+        $node = $expr;
+        foreach ( $suffixes as $s ) {
+            $node = $this->applyPostfix( $node, $s );
+        }
+        return $node;
+    }
+
+    /** Concatenate an array of single characters into a string. */
+    private function strJoin( array $chars ): string {
+        return implode( '', $chars );
+    }
+
+    /** Decode a C-style backslash escape sequence (e.g. `\n`, `\t`). */
+    private function unescapeCStr( string $c ): string {
+        return stripcslashes( $c );
+    }
+
+    /** Decode a `\uXXXX` Unicode escape to a UTF-8 character. */
+    private function decodeUnicodeEscape( string $c ): string {
+        return json_decode( '"' . $c . '"' );
+    }
+
+    /** Parse a decimal integer string to an int. */
+    private function intVal( string $n ): int {
+        return (int)$n;
+    }
+
+    /** Parse a decimal number string to a float. */
+    private function floatVal( string $n ): float {
+        return (float)$n;
     }
 }
 
@@ -110,7 +150,7 @@ Pipe
   / "label" !IdentChar _ "$" name:Name _ "|" _ body:Pipe
     { return [ 'type' => 'label', 'name' => $name, 'body' => $body ]; }
   / left:Comma right:(_ "|" _ @Pipe)?
-    { return self::build( $left, $right, 'pipe' ); }
+    { return $this->build( $left, $right, 'pipe' ); }
 
 /* ================================================================== */
 /*  Comma  ,   left-associative; generates multiple outputs            */
@@ -121,7 +161,7 @@ Pipe
 
 Comma
   = first:Expr rest:(_ "," _ @CommaRHS)*
-    {   return self::foldLeft( $first, $rest, 'comma' ); }
+    {   return $this->foldLeft( $first, $rest, 'comma' ); }
 
 /*
  * Right-hand side of a comma.  Mirrors the productions available at
@@ -148,7 +188,7 @@ Expr = Alt
 
 Alt
   = left:Assign right:(_ "//" _ @Alt)?
-    { return self::build( $left, $right, 'alternative' ); }
+    { return $this->build( $left, $right, 'alternative' ); }
 
 /* ================================================================== */
 /*  Assignments  = |= += -= *= /= %= //=   non-associative            */
@@ -156,7 +196,7 @@ Alt
 
 Assign
   = left:Or right:(_ @AssignOp _ @Or)?
-    { return self::buildOp( $left, $right, 'assign' ); }
+    { return $this->buildOp( $left, $right, 'assign' ); }
 
 AssignOp "assignment operator"
   = "//=" / "|=" / "+=" / "-=" / "*=" / "/=" / "%=" / "="
@@ -167,11 +207,11 @@ AssignOp "assignment operator"
 
 Or
   = first:And rest:(_ "or" !IdentChar _ @And)*
-    { return self::foldLeft( $first, $rest, 'or' ); }
+    { return $this->foldLeft( $first, $rest, 'or' ); }
 
 And
   = first:Cmp rest:(_ "and" !IdentChar _ @Cmp)*
-    { return self::foldLeft( $first, $rest, 'and' ); }
+    { return $this->foldLeft( $first, $rest, 'and' ); }
 
 /* ================================================================== */
 /*  Comparisons   == != < > <= >=   non-associative                    */
@@ -179,7 +219,7 @@ And
 
 Cmp
   = left:Add right:(_ @CmpOp _ @Add)?
-    { return self::buildOp( $left, $right, 'compare' ); }
+    { return $this->buildOp( $left, $right, 'compare' ); }
 
 CmpOp "comparison operator"
   = "==" / "!=" / "<=" / ">=" / "<" / ">"
@@ -190,7 +230,7 @@ CmpOp "comparison operator"
 
 Add
   = first:Mul rest:(_ @("+" / "-") _ @Mul)*
-    { return self::foldLeftOp( $first, $rest, 'binop' ); }
+    { return $this->foldLeftOp( $first, $rest, 'binop' ); }
 
 /* ================================================================== */
 /*  Multiplicative  * / %   left-associative                           */
@@ -199,7 +239,7 @@ Add
 
 Mul
   = first:Postfix rest:(_ @MulOp _ @Postfix)*
-    { return self::foldLeftOp( $first, $rest, 'binop' ); }
+    { return $this->foldLeftOp( $first, $rest, 'binop' ); }
 
 MulOp "multiplicative operator"
   = "*" / "%" / @"/" !"/"
@@ -216,13 +256,7 @@ MulOp "multiplicative operator"
 
 Postfix
   = expr:Term suffixes:(_ @Suffix)*
-    {
-        $node = $expr;
-        foreach ( $suffixes as $s ) {
-            $node = self::applyPostfix( $node, $s );
-        }
-        return $node;
-    }
+    { return $this->buildPostfix( $expr, $suffixes ); }
 
 Suffix
   = "?"
@@ -252,7 +286,7 @@ OptQ = _ "?" { return true; } / "" { return false; }
 Term
   /* Recursive descent (..) */
   = ".."
-    { return [ 'type' => 'call', 'name' => 'recurse', 'args' => [] ]; }
+    { return [ 'type' => 'call', 'name' => 'recurse', 'args' => [/*array*/] ]; }
 
   /* Field access on identity: .name or .name? */
   /* jq lexer handles ".\w+" as a single FIELD token, no space between */
@@ -344,7 +378,7 @@ Term
   / name:FuncName _ "(" _ args:FuncArgs _ ")"
     { return [ 'type' => 'call', 'name' => $name, 'args' => $args ]; }
   / name:FuncName
-    { return [ 'type' => 'call', 'name' => $name, 'args' => [] ]; }
+    { return [ 'type' => 'call', 'name' => $name, 'args' => [/*array*/] ]; }
 
 /* ================================================================== */
 /*  Control-flow helpers                                                */
@@ -369,7 +403,7 @@ ForeachExtract = _ ";" _ @Query
 DictPairs
   = first:DictPair rest:(_ "," _ @DictPair)*
     { return [ $first, ...$rest ]; }
-  / "" { return []; }
+  / "" { return [/*array*/]; }
 
 DictPair
   /* identifier key: foo: expr */
@@ -405,7 +439,7 @@ DictKey
 
 DictExpr
   = left:Expr right:(_ "|" _ @DictExpr)?
-  { return self::build( $left, $right, 'pipe' ); }
+  { return $this->build( $left, $right, 'pipe' ); }
 
 /* ================================================================== */
 /*  Function definition helpers                                         */
@@ -414,7 +448,7 @@ DictExpr
 FuncParams
   = "(" _ first:FuncParam rest:(_ ";" _ @FuncParam)* _ ")"
     { return [ $first, ...$rest ]; }
-  / "" { return []; }
+  / "" { return [/*array*/]; }
 
 FuncParam
   = "$" name:Name { return [ 'kind' => 'value', 'name' => $name ]; }
@@ -423,7 +457,7 @@ FuncParam
 FuncArgs
   = first:FuncArg rest:(_ ";" _ @FuncArg)*
     { return [ $first, ...$rest ]; }
-  / "" { return []; }
+  / "" { return [/*array*/]; }
 
 FuncArg = Pipe
 
@@ -503,19 +537,19 @@ String "string"
         return [ 'type' => 'string', 'fmt' => $fmt, 'parts' => $parts ];
     }
   / "'" chars:(!"'" @SingleChar)* "'"
-    { return [ 'type' => 'literal', 'value' => implode( '', $chars ) ]; }
+    { return [ 'type' => 'literal', 'value' => $this->strJoin( $chars ) ]; }
 
 QQPart
   = "\\(" _ expr:Query _ ")"
     { return [ 'type' => 'str_interp', 'expr' => $expr ]; }
   / chars:( !"\\(" !'"' @SingleChar)+
-    { return [ 'type' => 'str_text', 'text' => implode( '', $chars ) ]; }
+    { return [ 'type' => 'str_text', 'text' => $this->strJoin( $chars ) ]; }
 
 SingleChar
   /* jq apparently doesn't permit \v */
-  = c:$("\\" [abfnrt\"\'\\])  { return stripcslashes( $c ); }
+  = c:$("\\" [abfnrt\"\'\\])  { return $this->unescapeCStr( $c ); }
   / c:$("\\u" [0-9A-F]i ([0-9A-F]i ([0-9A-F]i [0-9A-F]i?)?)?)
-    { return json_decode('"' . $c . '"'); }
+    { return $this->decodeUnicodeEscape( $c ); }
   / [^\\]
 
 /* ================================================================== */
@@ -524,9 +558,9 @@ SingleChar
 
 Number "number"
   = n:$[0-9]+ ![eE] !"."
-    { return [ 'type' => 'literal', 'value' => (int)$n ]; }
+    { return [ 'type' => 'literal', 'value' => $this->intVal( $n ) ]; }
   / n:$( ( [0-9]+ ("." [0-9]*)? / "." [0-9]+ ) ([eE] [+-]? [0-9]+)? )
-    { return [ 'type' => 'literal', 'value' => (float)$n ]; }
+    { return [ 'type' => 'literal', 'value' => $this->floatVal( $n ) ]; }
 
 /* ================================================================== */
 /*  Lexical rules                                                        */

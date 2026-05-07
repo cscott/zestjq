@@ -48,6 +48,7 @@ class JQGrammar extends \Wikimedia\WikiPEG\PEGParserBase {
          $this->filename = $this->options['filename'] ?? '<top-level>';
     }
 
+    /** Build a `$__loc__` object for the current parse position. */
     protected function makeLoc(): stdClass {
         return (object)[
 	    'file' => $this->filename,
@@ -55,21 +56,24 @@ class JQGrammar extends \Wikimedia\WikiPEG\PEGParserBase {
 	];
     }
 
-    private static function build( array $left, ?array $right, string $type ): array {
+    /** Wrap left/right in a binary node, or return left if right is absent. */
+    private function build( array $left, ?array $right, string $type ): array {
         if ($right === null) {
 	    return $left;
 	}
 	return [ 'type' => $type, 'left' => $left, 'right' => $right ];
     }
 
-    private static function buildOp( array $left, ?array $right, string $type ): array {
+    /** Like build(), but right is [op, operand] and the node gets an 'op' key. */
+    private function buildOp( array $left, ?array $right, string $type ): array {
         if ($right === null) {
 	    return $left;
 	}
 	return [ 'type' => $type, 'op' => $right[0], 'left' => $left, 'right' => $right[1] ];
     }
 
-    private static function foldLeftOp( array $first, array $rest, string $type ): array {
+    /** Left-fold a list of [op, operand] pairs into a left-associative op tree. */
+    private function foldLeftOp( array $first, array $rest, string $type ): array {
         $node = $first;
         foreach ( $rest as [ $op, $right ] ) {
             $node = [ 'type' => $type, 'op' => $op, 'left' => $node, 'right' => $right ];
@@ -77,7 +81,8 @@ class JQGrammar extends \Wikimedia\WikiPEG\PEGParserBase {
         return $node;
     }
 
-    private static function foldLeft( array $first, array $rest, string $type ): array {
+    /** Left-fold a list of operands into a left-associative binary tree. */
+    private function foldLeft( array $first, array $rest, string $type ): array {
         $node = $first;
         foreach ( $rest as $right ) {
             $node = [ 'type' => $type, 'left' => $node, 'right' => $right ];
@@ -85,11 +90,46 @@ class JQGrammar extends \Wikimedia\WikiPEG\PEGParserBase {
         return $node;
     }
 
-    private static function applyPostfix( array $expr, array $suffix ): array {
+    /** Attach one postfix suffix to an expression node. */
+    private function applyPostfix( array $expr, array $suffix ): array {
         if ( $suffix['type'] === 'try' ) {
             return [ 'type' => 'try', 'body' => $expr, 'catch' => $suffix['catch'] ];
         }
         return array_merge( $suffix, [ 'expr' => $expr ] );
+    }
+
+    /** Apply a list of postfix suffixes left-to-right to an expression. */
+    private function buildPostfix( array $expr, array $suffixes ): array {
+        $node = $expr;
+        foreach ( $suffixes as $s ) {
+            $node = $this->applyPostfix( $node, $s );
+        }
+        return $node;
+    }
+
+    /** Concatenate an array of single characters into a string. */
+    private function strJoin( array $chars ): string {
+        return implode( '', $chars );
+    }
+
+    /** Decode a C-style backslash escape sequence (e.g. `\n`, `\t`). */
+    private function unescapeCStr( string $c ): string {
+        return stripcslashes( $c );
+    }
+
+    /** Decode a `\uXXXX` Unicode escape to a UTF-8 character. */
+    private function decodeUnicodeEscape( string $c ): string {
+        return json_decode( '"' . $c . '"' );
+    }
+
+    /** Parse a decimal integer string to an int. */
+    private function intVal( string $n ): int {
+        return (int)$n;
+    }
+
+    /** Parse a decimal number string to a float. */
+    private function floatVal( string $n ): float {
+        return (float)$n;
     }
 
 
@@ -206,7 +246,7 @@ private function a5($name, $body) {
  return [ 'type' => 'label', 'name' => $name, 'body' => $body ]; 
 }
 private function a6($left, $right) {
- return self::build( $left, $right, 'pipe' ); 
+ return $this->build( $left, $right, 'pipe' ); 
 }
 private function a7($fmt, $parts) {
 
@@ -217,16 +257,16 @@ private function a7($fmt, $parts) {
     
 }
 private function a8($chars) {
- return [ 'type' => 'literal', 'value' => implode( '', $chars ) ]; 
+ return [ 'type' => 'literal', 'value' => $this->strJoin( $chars ) ]; 
 }
 private function a9($first, $rest) {
  return [ $first, ...$rest ]; 
 }
 private function a10() {
- return []; 
+ return [/*array*/]; 
 }
 private function a11($left, $right) {
- return self::build( $left, $right, 'alternative' ); 
+ return $this->build( $left, $right, 'alternative' ); 
 }
 private function a12($first, $rest) {
 
@@ -237,7 +277,7 @@ private function a12($first, $rest) {
     
 }
 private function a13($first, $rest) {
-   return self::foldLeft( $first, $rest, 'comma' ); 
+   return $this->foldLeft( $first, $rest, 'comma' ); 
 }
 private function a14($slashes) {
  return (strlen($slashes)%2)===1; 
@@ -246,13 +286,13 @@ private function a15($expr) {
  return [ 'type' => 'str_interp', 'expr' => $expr ]; 
 }
 private function a16($chars) {
- return [ 'type' => 'str_text', 'text' => implode( '', $chars ) ]; 
+ return [ 'type' => 'str_text', 'text' => $this->strJoin( $chars ) ]; 
 }
 private function a17($c) {
- return stripcslashes( $c ); 
+ return $this->unescapeCStr( $c ); 
 }
 private function a18($c) {
- return json_decode('"' . $c . '"'); 
+ return $this->decodeUnicodeEscape( $c ); 
 }
 private function a19($name) {
  return [ 'kind' => 'value', 'name' => $name ]; 
@@ -261,7 +301,7 @@ private function a20($name) {
  return [ 'kind' => 'filter', 'name' => $name ]; 
 }
 private function a21($left, $right) {
- return self::buildOp( $left, $right, 'assign' ); 
+ return $this->buildOp( $left, $right, 'assign' ); 
 }
 private function a22($name) {
  return [ 'type' => 'var_pattern', 'name' => $name ]; 
@@ -298,7 +338,7 @@ private function a30($name) {
                'value' => [ 'type' => 'variable', 'name' => $name ] ]; 
 }
 private function a31($first, $rest) {
- return self::foldLeft( $first, $rest, 'or' ); 
+ return $this->foldLeft( $first, $rest, 'or' ); 
 }
 private function a32($name, $pat) {
  return [ 'key' => [ 'type' => 'literal', 'value' => $name ],
@@ -318,25 +358,19 @@ private function a35($name) {
  return [ 'type' => 'literal', 'value' => $name ]; 
 }
 private function a36($first, $rest) {
- return self::foldLeft( $first, $rest, 'and' ); 
+ return $this->foldLeft( $first, $rest, 'and' ); 
 }
 private function a37($left, $right) {
- return self::buildOp( $left, $right, 'compare' ); 
+ return $this->buildOp( $left, $right, 'compare' ); 
 }
 private function a38($first, $rest) {
- return self::foldLeftOp( $first, $rest, 'binop' ); 
+ return $this->foldLeftOp( $first, $rest, 'binop' ); 
 }
 private function a39($expr, $suffixes) {
-
-        $node = $expr;
-        foreach ( $suffixes as $s ) {
-            $node = self::applyPostfix( $node, $s );
-        }
-        return $node;
-    
+ return $this->buildPostfix( $expr, $suffixes ); 
 }
 private function a40() {
- return [ 'type' => 'call', 'name' => 'recurse', 'args' => [] ]; 
+ return [ 'type' => 'call', 'name' => 'recurse', 'args' => [/*array*/] ]; 
 }
 private function a41($name, $opt) {
  return [ 'type' => 'field',
@@ -403,7 +437,7 @@ private function a59($name, $args) {
  return [ 'type' => 'call', 'name' => $name, 'args' => $args ]; 
 }
 private function a60($name) {
- return [ 'type' => 'call', 'name' => $name, 'args' => [] ]; 
+ return [ 'type' => 'call', 'name' => $name, 'args' => [/*array*/] ]; 
 }
 private function a61() {
  return [ 'type' => 'try', 'catch' => null ]; 
@@ -430,10 +464,10 @@ private function a68() {
  return false; 
 }
 private function a69($n) {
- return [ 'type' => 'literal', 'value' => (int)$n ]; 
+ return [ 'type' => 'literal', 'value' => $this->intVal( $n ) ]; 
 }
 private function a70($n) {
- return [ 'type' => 'literal', 'value' => (float)$n ]; 
+ return [ 'type' => 'literal', 'value' => $this->floatVal( $n ) ]; 
 }
 private function a71($cond, $then, $rest) {
  return [ 'type' => 'if', 'cond' => $cond, 'then' => $then, 'else' => $rest ]; 
