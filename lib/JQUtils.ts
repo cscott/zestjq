@@ -1,18 +1,5 @@
-import type { JQValue } from './JQValue.js';
-import type { JQEnv } from './JQEnv.js';
-import { JQError } from './JQError.js';
-
-// Inner filter: takes (input, env), returns a Generator of outputs
-export type FilterFn = ( input: JQValue, env: JQEnv ) => Generator<JQValue>;
-
-// Filter factory for n-arity functions: takes arg filters, returns a FilterFn
-export type FilterFactory = ( args: FilterFn[] ) => FilterFn;
-
-export function assertNotPath( value: JQValue, env: JQEnv ): void {
-	if ( env.isPathMode() ) {
-		throw new JQError( `Invalid path expression with result ${jsonEncode( value )}` );
-	}
-}
+import type { JQValue } from './internal.js';
+import { JQError } from './internal.js';
 
 export function jsonDecode( s: string ): JQValue {
 	const stripped = s.replace( /^\uFEFF/, '' ); // strip BOM

@@ -1,5 +1,10 @@
 {
-	"private": true,
+	"exports": {
+		".": {
+			"import": "./dist/index.js",
+			"types": "./dist/index.d.ts"
+		}
+	},
 	"devDependencies": {
 		"@types/node": "^25.6.2",
 		"@typescript-eslint/eslint-plugin": "^7.8.0",
@@ -17,9 +22,10 @@
 		"zestjq": "./bin/zestjq.js"
 	},
 	"scripts": {
-		"build": "tsc -p tsconfig.build.json && cp lib/JQGrammar.js dist/JQGrammar.js",
+		"build": "tsc -p tsconfig.build.json && cp lib/JQGrammar.js dist/JQGrammar.js && cp lib/JQBuiltin.js dist/JQBuiltin.js",
 		"doc": "jsdoc -c jsdoc.json",
-		"test": "vitest run && npm run lint",
+		"typecheck": "npx tsc --noEmit --skipLibCheck",
+		"test": "vitest run && npm run lint && npm run typecheck",
 		"lint": "eslint .",
 		"lint:fix": "eslint --fix .",
 		"build-stdenv": "node tools/build-stdenv.js",

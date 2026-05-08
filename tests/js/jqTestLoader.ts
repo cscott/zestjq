@@ -19,8 +19,9 @@ const testCache = new Map<string, TestCase[]>();
  * @return {TestCase[]} test cases loaded from the given file
  */
 export function loadTests( filename: string ): TestCase[] {
-	if ( testCache.has( filename ) ) {
-		return testCache.get( filename );
+	const hit = testCache.get( filename );
+	if ( hit !== undefined ) {
+		return hit;
 	}
 	// eslint-disable-next-line security/detect-non-literal-fs-filename
 	const lines = readFileSync( filename, 'utf8' ).split( '\n' );

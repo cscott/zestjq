@@ -1,4 +1,4 @@
-import type { ASTNode } from './JQGrammar.js';
+import type { ASTNode } from './internal.js';
 
 export declare class JQBuiltin {
 	public static readonly AST: ASTNode;

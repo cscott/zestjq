@@ -1,12 +1,6 @@
 import { readFileSync } from 'fs';
-import { parse, SyntaxError as JQSyntaxError } from './JQGrammar.js';
-import type { ASTNode } from './JQGrammar.js';
-import { JQCompile } from './JQCompile.js';
-import { JQEnv } from './JQEnv.js';
-import { JQError } from './JQError.js';
-import { JQHaltException } from './JQHaltException.js';
-import * as JQUtils from './JQUtils.js';
-import type { JQFilter, JQValue } from './JQValue.js';
+import { parse, SyntaxError, JQCompile, JQEnv, JQError, JQHaltException, JQUtils } from './internal.js';
+import type { ASTNode, JQFilter, JQValue } from './internal.js';
 
 type JQCmdOptions = {
 	nullInput: boolean;
@@ -94,7 +88,7 @@ export class JQCmd {
 		try {
 			ast = parse( filterExpr, { filename: '<top-level>' } );
 		} catch ( e ) {
-			if ( e instanceof JQSyntaxError ) {
+			if ( e instanceof SyntaxError ) {
 				JQCmd.writeErr( `zestjq: syntax error in filter: ${e.message}\n` );
 				return 3;
 			}

@@ -1,9 +1,5 @@
-import type { ASTNode } from './JQGrammar.js';
-import type { JQFilter, JQValue } from './JQValue.js';
-import type { FilterFn } from './JQUtils.js';
-import { assertNotPath } from './JQUtils.js';
-import { JQError } from './JQError.js';
-import { JQEnv } from './JQEnv.js';
+import type { ASTNode, JQFilter, JQValue, FilterFn } from './internal.js';
+import { JQEnv, assertNever, assertNotPath } from './internal.js';
 
 export class JQCompile {
 	public static compile( ast: ASTNode, env: JQEnv ): JQFilter {
@@ -18,7 +14,7 @@ export class JQCompile {
 			case 'pipe': return this.compilePipe( node );
 			case 'identity': return this.compileIdentity();
 			default:
-				throw new JQError( `unimplemented: ${node.type}` );
+				assertNever( `unimplemented: ${node.type}` );
 		}
 	}
 

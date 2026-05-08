@@ -38,7 +38,8 @@ abstract class JQEnv {
 	/**
 	 * Return a new env with one additional function binding.
 	 *
-	 * All filter parameters (including desugared value params) are represented
+	 * When arity is zero, the Binding should be a FilterFn.  Otherwise
+	 * the binding is a FilterFactory and all parameters are represented
 	 * as Closure(mixed $input, JQEnv $env): Generator.
 	 *
 	 * @param string $name Function name (may include a :: namespace)
@@ -53,9 +54,9 @@ abstract class JQEnv {
 	 * Look up a compiled function by name and arity.
 	 *
 	 * Returns null if no definition is found; the caller is responsible for
-	 * falling back to the builtin registry or raising a JQError.
+	 * falling back to some other environment or raising a JQError.
 	 *
-	 * @return ?Closure(mixed,JQEnv):Generator a Filter, or
+	 * @return ?Closure(mixed,JQEnv):Generator a Filter or filter factory, or
 	 *   null if the binding doesn't exists
 	 */
 	public function lookup( string $name, int $arity, bool $cache = true ): ?Closure {
@@ -70,12 +71,17 @@ abstract class JQEnv {
 	 * returned. The env is then cached for the lifetime of the process.
 	 */
 	public static function getStdEnv(): JQEnv {
+		// The standard environment is built with a null IOContext
 		self::$stdEnv ??= new JQLazyEnv( new IOContext );
 		return self::$stdEnv;
 	}
 
 	/**
-	 * Extend the given environment with the definitions in $defs.
+	 * Extend the given environment with the jq definitions in $defs.
+	 *
+	 * @param string $defs jq source containing one or more def statements
+	 * @param ?string $filename Optional source name for error messages
+	 * @throws JQError on syntax error or if __env__ is not yielded
 	 */
 	public function extendEnv( string $defs, ?string $filename = null ): JQEnv {
 		$filename ??= '<definitions>';
@@ -88,9 +94,7 @@ abstract class JQEnv {
 		throw new JQError( __METHOD__ . ': __env__ was not yielded' );
 	}
 
-	protected static function buildStandardEnv( ?JQTopLevelEnv $topLevelEnv = null ): JQEnv {
-		// The standard environment is built with a null IOContext
-		$topLevelEnv ??= new JQTopLevelEnv( new IOContext );
+	protected static function buildStandardEnv( JQEnv $topLevelEnv ): JQEnv {
 		$ast = JQBuiltin::getAst();
 		$f = JQCompile::compile( $ast, $topLevelEnv );
 		foreach ( $f( null ) as $val ) {
@@ -119,10 +123,10 @@ abstract class JQEnv {
 	}
 
 	/**
-	 * If $parent is in path mode, then enter path mode with $parent
-	 * as the path parent, so that getPath() chains through it.  This
+	 * If $pathParent is in path mode, then enter path mode with $pathParent
+	 * as the path parent so that getPath() chains through it.  This
 	 * is used for re-rooting when threading path context across
-	 * def/pipe boundaries).
+	 * def/pipe boundaries.
 	 *
 	 * @param JQEnv $pathParent Existing path chain which we would
 	 *  re-root onto, if it is a JQPathEnv.
@@ -148,8 +152,8 @@ abstract class JQEnv {
 	}
 
 	/**
-	 * Return an env with path mode disabled (for evaluating conditions and
-	 * key expressions that must not themselves produce path-mode outputs).
+	 * Return an env with path mode disabled, for evaluating conditions and
+	 * key expressions that must not themselves produce path-mode outputs.
 	 * In normal mode returns $this unchanged (fast path, no allocation).
 	 */
 	public function leavePathMode(): self {
@@ -158,7 +162,6 @@ abstract class JQEnv {
 
 	/**
 	 * Reconstruct the full path array for this env.
-	 * Segments are gathered bottom-up (O(N) push) and then reversed once.
 	 */
 	public function getPath(): array {
 		throw new LogicException( 'not in path mode' );
@@ -178,8 +181,7 @@ abstract class JQEnv {
 	/**
 	 * Unwrap a potentially path-wrapped generator output.
 	 * Always returns [JQEnv $nextEnv, mixed $value].
-	 * Normal mode: [$this, $item]  (identity; no allocation avoided here for
-	 *              uniformity — hot-path callers may add an isPathMode() guard).
+	 * Normal mode: [$this, $item]
 	 * Path mode:   [$item[0], $item[1]]  (unwraps the [pathEnv, value] pair).
 	 *
 	 * Used in compilePipe to thread the path env into the right-hand side.

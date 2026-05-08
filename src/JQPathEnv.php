@@ -10,11 +10,11 @@ use LogicException;
  * Subclass of JQEnv used in path mode to trace the path corresponding to
  * values collected, in addition to the usual functions of an Env.
  *
- * Two-parent design: $parent (inherited from JQEnv) is always a plain JQEnv
- * used exclusively for variable lookups — lookup() reaches it in one step.
- * $pathParent is the previous JQPathEnv in the path chain, used exclusively
- * by getPath(). The two chains are completely independent, so binding depth
- * and path depth do not affect each other's performance.
+ * Two-parent design: $parent (inherited from JQEnv) is always a plain
+ * JQEnv used exclusively for binding lookups.  $pathParent is the
+ * previous JQPathEnv in the path chain, used exclusively by
+ * getPath(). The two chains are completely independent, so binding
+ * depth and path depth do not affect each other's performance.
  */
 class JQPathEnv extends JQEnv {
 

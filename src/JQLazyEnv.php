@@ -36,7 +36,7 @@ class JQLazyEnv extends JQEnv {
 				return $binding;
 			}
 			// Ok, I guess we have to load the stdenv now.
-			// @phan-suppress-next-line PhanTypeMismatchArgumentSuperType
+			// @phan-suppress-next-line PhanTypeMismatchArgumentNullable
 			$this->resolved = self::buildStandardEnv( $this->parent );
 		}
 		return $this->resolved->lookup( $name, $arity, $cache );
