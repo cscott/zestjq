@@ -71,7 +71,8 @@
 		"build-stdenv": [
 			"php tools/build-stdenv.php",
 			"minus-x fix . || true",
-			"phpcbf || true"
+			"phpcbf || true",
+			"fresh-node -- npm run build-stdenv"
 		]
 	},
 	"config": {

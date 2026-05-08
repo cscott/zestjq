@@ -22,6 +22,7 @@
 		"test": "vitest run && npm run lint",
 		"lint": "eslint .",
 		"lint:fix": "eslint --fix .",
+		"build-stdenv": "node tools/build-stdenv.js",
 		"regen-jq-parser": "npm run regen-jq-parser-php && npm run regen-jq-parser-js",
 		"regen-jq-parser-php": "node node_modules/wikipeg/bin/wikipeg --common-lang --class-name JQGrammar --php src/JQGrammar.peg src/JQGrammar.php",
 		"regen-jq-parser-js": "node node_modules/wikipeg/bin/wikipeg --common-lang --class-name JQGrammar src/JQGrammar.peg lib/JQGrammar.js"

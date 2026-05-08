@@ -4,7 +4,7 @@ declare( strict_types = 1 );
 
 require_once __DIR__ . '/../vendor/autoload.php';
 
-use Wikimedia\ZestJQ\JQCmd;
+use Wikimedia\ZestJQ\JQGrammar;
 
 $builtinPath = __DIR__ . '/../src/builtin.jq';
 $outPath     = __DIR__ . '/../src/JQBuiltin.php';
@@ -15,19 +15,8 @@ if ( $src === false ) {
 	exit( 1 );
 }
 
-ob_start();
-$exitCode = JQCmd::main( 3, [ '-n', '--ast', $src . "\n__env__" ] );
-$astJson = ob_get_clean();
-if ( $exitCode !== 0 || $astJson === false ) {
-	fwrite( STDERR, "Error: could not parse builtin.jq (exit $exitCode)\n" );
-	exit( 1 );
-}
-
-$ast = json_decode( $astJson, true );
-if ( $ast === null ) {
-	fwrite( STDERR, "Error: could not decode AST from --ast output\n" );
-	exit( 1 );
-}
+$g = new JQGrammar;
+$ast = $g->parse( $src . "\n__env__", [ 'filename' => '<builtin.jq>' ] );
 
 $serialized = var_export( serialize( $ast ), true );
 $content = <<<PHP
