@@ -1,8 +1,3 @@
-<?php
-declare( strict_types = 1 );
-
-namespace Wikimedia\ZestJQ;
-
 /**
  * I/O context for JQ evaluation.
  *
@@ -14,10 +9,8 @@ namespace Wikimedia\ZestJQ;
  * evaluated with a empty IOContext (since built-ins should not require
  * user interaction during initialization) and then have the user's
  * IOContext replace this empty IOContext during user filter evaluation.
+ *
+ * TODO: add input stream and debug/stderr callbacks if/when those builtins
+ * are ported.
  */
-class IOContext {
-	/*
-	 * TODO: add input stream and debug/stderr callbacks if/when those builtins
-	 * are ported.
-	 */
-}
+export class IOContext {}
