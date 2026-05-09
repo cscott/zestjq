@@ -4,7 +4,7 @@ import { JQUtils, JQEnv, JQError, JQBreak, assertNever } from './internal.js';
 const {
 	assertNotPath,
 	checkArray, checkNumber, checkObject, checkString, isNumber, adjustIndex,
-	toBoolean, typeName, typeNameAndValue,
+	normalizeSliceIdx, MAX_SIZE, toBoolean, typeName, typeNameAndValue,
 	equal, compare, add, subtract, multiply, divide, modulo,
 	formatterFor,
 } = JQUtils;
@@ -12,6 +12,10 @@ const {
 // Matcher: given a value and an env, yields extended envs on successful match.
 // Type mismatches should throw JQError so that alt_pattern can catch and retry.
 type Matcher = ( val: JQValue, env: JQEnv ) => Generator<JQEnv>;
+
+// Tombstone sentinel for deleteAtPaths — a unique object that cannot be
+// produced by JSON.parse, so it cannot alias any user-supplied JQ value.
+const TOMB: JQValue = Object.freeze( Object.create( null ) as Record<string, JQValue> );
 
 export class JQCompile {
 	public static compile( ast: ASTNode, env: JQEnv ): JQFilter {
@@ -973,5 +977,264 @@ export class JQCompile {
 			}
 		}
 		return positions;
+	}
+
+	/**
+	 * Navigate to the value at `path` within `val`.
+	 * null propagates (null[x] → null); out-of-bounds returns null.
+	 *
+	 * @param {JQValue} val
+	 * @param {JQValue[]} path
+	 * @param {number} offset The current offset into path
+	 * @return {JQValue} The value at this patch within val
+	 */
+	public static getAtPath( val: JQValue, path: JQValue[], offset: number ): JQValue {
+		if ( offset >= path.length ) {
+			return val;
+		}
+		const key = path[ offset++ ];
+		if ( typeof key === 'string' ) {
+			if ( val !== null && typeof val === 'object' && !Array.isArray( val ) ) {
+				const obj = val as Record<string, JQValue>;
+				if ( obj[ key ] !== undefined ) {
+					return JQCompile.getAtPath( obj[ key ], path, offset );
+				}
+			}
+			return null;
+		}
+		if ( isNumber( key ) ) {
+			if ( !Array.isArray( val ) ) {
+				return null;
+			}
+			const idx = adjustIndex( 'getAtPath', key, val );
+			if ( idx === null ) {
+				return null;
+			}
+			return JQCompile.getAtPath( val[ idx ], path, offset );
+		}
+		if ( Array.isArray( key ) ) {
+			if ( !Array.isArray( val ) ) {
+				return null;
+			}
+			return JQCompile.getAtPath(
+				JQCompile.arraySubarraySearch( val, key as JQValue[] ) as JQValue,
+				path, offset,
+			);
+		}
+		return null;
+	}
+
+	/**
+	 * Return `container` with `newVal` written at `path`.
+	 * Promotes null → [] or stdClass based on key type; fills array gaps with null.
+	 * Throws JQError for out-of-bounds negative indices and oversized indices.
+	 *
+	 * @param {JQValue} container
+	 * @param {JQValue[]} path
+	 * @param {number} offset The current offset into $path
+	 * @param {JQValue} newVal The value we expect to set at the end of the path
+	 * @return {JQValue}
+	 */
+	public static setAtPath(
+		container: JQValue, path: JQValue[], offset: number, newVal: JQValue,
+	): JQValue {
+		if ( offset >= path.length ) {
+			return newVal;
+		}
+		const key = path[ offset++ ];
+		if ( typeof key === 'string' ) {
+			if ( container === null ) {
+				// null is promoted to object
+				container = {};
+			}
+			const obj = checkObject( 'setAtPath', container );
+			return {
+				...obj,
+				[ key ]: JQCompile.setAtPath( obj[ key ] ?? null, path, offset, newVal ),
+			};
+		}
+		if ( isNumber( key ) ) {
+			if ( container === null ) {
+				// null is promoted to array
+				container = [];
+			}
+			const arr = checkArray( 'setAtPath', container );
+			if ( isNaN( key ) ) {
+				throw new JQError( 'Cannot set array element at NaN index' );
+			}
+			let index = Math.trunc( key );
+			if ( index < 0 ) {
+				index += arr.length;
+			}
+			if ( index < 0 ) {
+				throw new JQError( 'Out of bounds negative array index' );
+			}
+			if ( index >= MAX_SIZE ) {
+				throw new JQError( 'Array index too large' );
+			}
+			const newArr = [ ...arr ];
+			while ( newArr.length < index ) {
+				newArr.push( null );
+			}
+			newArr[ index ] = JQCompile.setAtPath(
+				arr[ index ] ?? null, path, offset, newVal,
+			);
+			return newArr;
+		}
+		if ( Array.isArray( key ) ) {
+			throw new JQError( 'Cannot update field at array index of array' );
+		}
+		// Slice-path key: { start: ..., end: ... } produced by compileSlice in path mode.
+		if ( key !== null && typeof key === 'object' ) {
+			const arr = checkArray( 'setAtPath', container );
+			const len = arr.length;
+			const keyObj = key as Record<string, JQValue>;
+			const f = normalizeSliceIdx( keyObj.start ?? null, len, 0, true, false );
+			const t = normalizeSliceIdx( keyObj.end ?? null, len, len, false, true );
+			const repl = Array.isArray( newVal ) ? newVal : [];
+			const newArr = [ ...arr ];
+			newArr.splice( f, Math.max( 0, t - f ), ...repl );
+			return newArr;
+		}
+		return container;
+	}
+
+	/**
+	 * Return `container` with the slot at each `path` in `paths` removed.
+	 * Array elements are spliced out (later elements shift left); object keys are unset.
+	 * Non-existent paths are silently ignored.
+	 *
+	 * @param {JQValue} container
+	 * @param {JQValue[]} paths
+	 * @return {JQValue}
+	 */
+	public static deleteAtPaths( container: JQValue, paths: JQValue[] ): JQValue {
+		let result = container;
+		const tombstonePaths: JQValue[][] = [];
+		for ( const path of paths ) {
+			result = JQCompile.deleteAtPath(
+				result, checkArray( 'delpaths', path ), 0, tombstonePaths,
+			);
+		}
+		// Process deepest (longest) paths first so children are compacted before parents.
+		tombstonePaths.sort( ( a, b ) =>
+			( b.length - a.length ) || compare( a as JQValue, b as JQValue ),
+		);
+		// Deduplicate and compact each unique tombstone parent path.
+		const seen = new Set<string>();
+		for ( const path of tombstonePaths ) {
+			const key = JSON.stringify( path );
+			if ( !seen.has( key ) ) {
+				seen.add( key );
+				result = JQCompile.compactAtPath( result, path, 0 );
+			}
+		}
+		return result;
+	}
+
+	private static deleteAtPath(
+		container: JQValue, path: JQValue[], offset: number, tombstonePaths: JQValue[][],
+	): JQValue {
+		if ( offset >= path.length ) {
+			return null;
+		}
+		const key = path[ offset++ ];
+		if ( offset < path.length ) {
+			// Not at leaf — recurse into the container
+			if ( typeof key === 'string' && container !== null &&
+					typeof container === 'object' && !Array.isArray( container ) ) {
+				const obj = container as Record<string, JQValue>;
+				if ( obj[ key ] === undefined ) {
+					return container;
+				}
+				return {
+					...obj,
+					[ key ]: JQCompile.deleteAtPath( obj[ key ], path, offset, tombstonePaths ),
+				};
+			}
+			if ( isNumber( key ) && Array.isArray( container ) ) {
+				const idx = adjustIndex( 'deleteAtPath', key, container );
+				if ( idx !== null && container[ idx ] !== TOMB ) {
+					const newArr = [ ...container ];
+					newArr[ idx ] = JQCompile.deleteAtPath(
+						container[ idx ], path, offset, tombstonePaths,
+					);
+					return newArr;
+				}
+			}
+			return container;
+		}
+		// At leaf — delete the key (or replace it with a tombstone)
+		if ( typeof key === 'string' && container !== null &&
+				typeof container === 'object' && !Array.isArray( container ) ) {
+			const obj = container as Record<string, JQValue>;
+			const newObj = { ...obj };
+			delete newObj[ key ];
+			return newObj;
+		}
+		if ( isNumber( key ) && Array.isArray( container ) ) {
+			const index = adjustIndex( 'deleteAtPath', key, container );
+			if ( index !== null && container[ index ] !== TOMB ) {
+				const newArr = [ ...container ];
+				newArr[ index ] = TOMB;
+				tombstonePaths.push( path.slice( 0, -1 ) );
+				return newArr;
+			}
+		}
+		if ( Array.isArray( key ) ) {
+			throw new JQError( 'Cannot delete array element of array' );
+		}
+		// Slice-path key: { start: ..., end: ... }
+		if ( key !== null && typeof key === 'object' && !Array.isArray( key ) &&
+				Array.isArray( container ) ) {
+			const len = container.length;
+			const keyObj = key as Record<string, JQValue>;
+			const f = normalizeSliceIdx( keyObj.start ?? null, len, 0, true, false );
+			const t = normalizeSliceIdx( keyObj.end ?? null, len, len, false, true );
+			const newArr = [ ...container ];
+			let sawTombstone = false;
+			for ( let i = f; i < t; i++ ) {
+				sawTombstone = sawTombstone || newArr[ i ] === TOMB;
+				newArr[ i ] = TOMB;
+			}
+			if ( !sawTombstone ) {
+				// Optimization: If we saw a tombstone, this array is already
+				// on the tombstonePaths list.
+				tombstonePaths.push( path.slice( 0, -1 ) );
+			}
+			return newArr;
+		}
+		return container;
+	}
+
+	// Remove tombstones from arrays to complete deleteAtPath.
+	private static compactAtPath(
+		container: JQValue, path: JQValue[], offset: number,
+	): JQValue {
+		if ( offset >= path.length ) {
+			const arr = checkArray( 'compactAtPath', container );
+			return arr.filter( ( v ) => v !== TOMB );
+		}
+		const key = path[ offset++ ];
+		if ( typeof key === 'string' && container !== null &&
+				typeof container === 'object' && !Array.isArray( container ) ) {
+			const obj = container as Record<string, JQValue>;
+			if ( obj[ key ] === undefined ) {
+				return container;
+			}
+			return {
+				...obj,
+				[ key ]: JQCompile.compactAtPath( obj[ key ], path, offset ),
+			};
+		}
+		if ( isNumber( key ) && Array.isArray( container ) ) {
+			const idx = adjustIndex( 'compactAtPath', key, container );
+			if ( idx !== null && container[ idx ] !== TOMB ) {
+				const newArr = [ ...container ];
+				newArr[ idx ] = JQCompile.compactAtPath( container[ idx ], path, offset );
+				return newArr;
+			}
+		}
+		return container;
 	}
 }

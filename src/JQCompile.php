@@ -1473,6 +1473,7 @@ class JQCompile {
 			}
 			return $container;
 		}
+		// At leaf — delete the key (or replace it with a tombstone)
 		if ( is_string( $key ) && is_object( $container ) ) {
 			$newObj = clone $container;
 			unset( $newObj->$key );
@@ -1513,6 +1514,7 @@ class JQCompile {
 		return $container;
 	}
 
+	/** Remove tombstones from arrays to complete deleteAtPath. */
 	private static function compactAtPath( mixed $container, array $path, int $offset, object $tombstone ): mixed {
 		if ( $offset >= count( $path ) ) {
 			$container = JQUtils::checkArray( 'compactAtPath', $container );
