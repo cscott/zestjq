@@ -3,11 +3,15 @@ import { JQUtils, JQEnv, JQError, JQBreak, assertNever } from './internal.js';
 
 const {
 	assertNotPath,
-	checkNumber, checkObject, checkString, isNumber, adjustIndex,
+	checkArray, checkNumber, checkObject, checkString, isNumber, adjustIndex,
 	toBoolean, typeName, typeNameAndValue,
 	equal, compare, add, subtract, multiply, divide, modulo,
 	formatterFor,
 } = JQUtils;
+
+// Matcher: given a value and an env, yields extended envs on successful match.
+// Type mismatches should throw JQError so that alt_pattern can catch and retry.
+type Matcher = ( val: JQValue, env: JQEnv ) => Generator<JQEnv>;
 
 export class JQCompile {
 	public static compile( ast: ASTNode, env: JQEnv ): JQFilter {
@@ -49,6 +53,7 @@ export class JQCompile {
 			case 'comma': return this.compileComma( node );
 			case 'array': return this.compileArray( node );
 			case 'object': return this.compileObject( node );
+			case 'bind': return this.compileBind( node );
 			case 'compare': return this.compileCompare( node );
 			case 'and': return this.compileAnd( node );
 			case 'or': return this.compileOr( node );
@@ -410,6 +415,229 @@ export class JQCompile {
 			for ( const obj of objects ) {
 				yield assertNotPath( obj, env );
 			}
+		};
+	}
+
+	/**
+	 * Compile a bind node: `expr as $pat | body`.
+	 *
+	 * For each output of expr, match it against the pattern and evaluate
+	 * body in the extended environment. Two important points:
+	 *
+	 * - Body receives the original $input, not the bound value. This is
+	 *   what distinguishes "as" from a pipe: . stays the same in body.
+	 * - $innerEnv flows only into body, never outward. Bindings introduced
+	 *   here are invisible outside the body, giving correct lexical scoping.
+	 *
+	 * @param {ASTNode} node Node with 'expr', 'pattern', and 'body' keys
+	 * @return {FilterFn}
+	 */
+	private compileBind( node: ASTNode ): FilterFn {
+		const srcFn = this.compileNode( node.expr as ASTNode );
+		const bodyFn = this.compileNode( node.body as ASTNode );
+		const patFn = this.compilePattern( node.pattern as ASTNode );
+		return function* ( input: JQValue, env: JQEnv ): Generator<JQValueOrPath> {
+			for ( const val of srcFn( input, env.leavePathMode() ) ) {
+				for ( const innerEnv of patFn( val as JQValue, env ) ) {
+					yield* bodyFn( input, innerEnv );
+				}
+			}
+		};
+	}
+
+	// Recursive helper for obj_pattern matching.
+	//
+	// For each value yielded by the field's key function, validates it is a
+	// string, looks up that field in $val, runs the field's pattern matcher,
+	// then recurses into the remaining fields.  Produces one output environment
+	// per combination of key values, matching jq's multi-output semantics.
+	private static *matchObjFields(
+		val: Record<string, JQValue>,
+		env: JQEnv,
+		fields: [ FilterFn, Matcher ][],
+		idx: number,
+	): Generator<JQEnv> {
+		if ( idx >= fields.length ) {
+			yield env;
+			return;
+		}
+		const [ keyFn, fieldFn ] = fields[ idx ];
+		for ( const k of keyFn( val as JQValue, env.leavePathMode() ) ) {
+			const fieldName = checkString( 'object index', k as JQValue );
+			const fieldVal: JQValue = val[ fieldName ] ?? null;
+			for ( const nextEnv of fieldFn( fieldVal, env ) ) {
+				yield* JQCompile.matchObjFields( val, nextEnv, fields, idx + 1 );
+			}
+		}
+	}
+
+	// Recursively collect all variable names (with leading $) bound by a pattern.
+	private static collectPatternVars( pat: ASTNode ): string[] {
+		switch ( pat.type as string ) {
+			case 'var_pattern':
+				return [ '$' + ( pat.name as string ) ];
+			case 'array_pattern':
+				return ( pat.elems as ASTNode[] )
+					.flatMap( ( p ) => JQCompile.collectPatternVars( p ) );
+			case 'obj_pattern':
+				return ( pat.fields as { pattern: ASTNode }[] )
+					.map( ( f ) => f.pattern )
+					.flatMap( ( p ) => JQCompile.collectPatternVars( p ) );
+			case 'and_pattern':
+				return ( pat.patterns as ASTNode[] )
+					.flatMap( ( p ) => JQCompile.collectPatternVars( p ) );
+			case 'alt_pattern':
+				return [ ...new Set(
+					( pat.patterns as ASTNode[] )
+						.flatMap( ( p ) => JQCompile.collectPatternVars( p ) ),
+				) ];
+			default:
+				return [];
+		}
+	}
+
+	/**
+	 * Compile a pattern AST node into a Matcher.
+	 *
+	 * A Matcher takes (val, env) and yields zero or more extended envs representing
+	 * successful bindings. Type mismatches should throw JQError so alt_pattern can
+	 * catch and try the next alternative.
+	 *
+	 * @param {ASTNode} pat Pattern node
+	 * @return {Matcher}
+	 */
+	private compilePattern( pat: ASTNode ): Matcher {
+		switch ( pat.type as string ) {
+			case 'var_pattern': return this.compilePatternVar( pat );
+			case 'array_pattern': return this.compilePatternArray( pat );
+			case 'obj_pattern': return this.compilePatternObj( pat );
+			case 'and_pattern': return this.compilePatternAnd( pat );
+			case 'alt_pattern': return this.compilePatternAlt( pat );
+			default:
+				return assertNever( `Unknown pattern type: ${pat.type as string}` );
+		}
+	}
+
+	// Compile a var_pattern ($x): always succeeds, binding the value to $x.
+	private compilePatternVar( pat: ASTNode ): Matcher {
+		const key = '$' + ( pat.name as string );
+		return function* ( val: JQValue, env: JQEnv ): Generator<JQEnv> {
+			yield env.bind( key, 0,
+				function* ( _input: JQValue, _env: JQEnv ): Generator<JQValueOrPath> {
+					yield val;
+				},
+			);
+		};
+	}
+
+	// Compile an array_pattern ([$a, $b, ...]): checks type, then matches each element.
+	private compilePatternArray( pat: ASTNode ): Matcher {
+		const elemFns = ( pat.elems as ASTNode[] ).map( ( p ) => this.compilePattern( p ) );
+		return function* ( val: JQValue, env: JQEnv ): Generator<JQEnv> {
+			const arr = checkArray( 'array_pattern', val );
+			let envs: JQEnv[] = [ env ];
+			for ( let i = 0; i < elemFns.length; i++ ) {
+				const elemFn = elemFns[ i ];
+				const nextEnvs: JQEnv[] = [];
+				for ( const currentEnv of envs ) {
+					for ( const e of elemFn( arr[ i ] ?? null, currentEnv ) ) {
+						nextEnvs.push( e );
+					}
+				}
+				if ( nextEnvs.length === 0 ) {
+					return;
+				}
+				envs = nextEnvs;
+			}
+			yield* envs;
+		};
+	}
+
+	// Compile an obj_pattern ({key: pat, ...}): checks type, then matches each field.
+	private compilePatternObj( pat: ASTNode ): Matcher {
+		const fields: [ FilterFn, Matcher ][] =
+			( pat.fields as { key: ASTNode; pattern: ASTNode }[] ).map( ( field ) => [
+				this.compileNode( field.key ),
+				this.compilePattern( field.pattern ),
+			] );
+		return function* ( val: JQValue, env: JQEnv ): Generator<JQEnv> {
+			const obj = checkObject( 'obj_pattern', val );
+			yield* JQCompile.matchObjFields( obj, env, fields, 0 );
+		};
+	}
+
+	/**
+	 * Compile an and_pattern: applies each sub-pattern to the same value,
+	 * threading the env and accumulating all binding combinations.
+	 * Generated for {$b: subpat}, which must bind $b AND match subpat.
+	 *
+	 * @param {ASTNode} pat Pattern node with 'patterns' key
+	 * @return {Matcher}
+	 */
+	private compilePatternAnd( pat: ASTNode ): Matcher {
+		const patFns = ( pat.patterns as ASTNode[] ).map( ( p ) => this.compilePattern( p ) );
+		return function* ( val: JQValue, env: JQEnv ): Generator<JQEnv> {
+			let envs: JQEnv[] = [ env ];
+			for ( const patFn of patFns ) {
+				const nextEnvs: JQEnv[] = [];
+				for ( const currentEnv of envs ) {
+					for ( const e of patFn( val, currentEnv ) ) {
+						nextEnvs.push( e );
+					}
+				}
+				if ( nextEnvs.length === 0 ) {
+					return;
+				}
+				envs = nextEnvs;
+			}
+			yield* envs;
+		};
+	}
+
+	/**
+	 * Compile an alt_pattern (p1 ?// p2 ?// ...): tries each alternative in
+	 * order, yielding from the first that succeeds. Variables bound only in
+	 * non-matching alternatives are null-filled in the resulting env.
+	 *
+	 * @param {ASTNode} pat Pattern node with 'patterns' key
+	 * @return {Matcher}
+	 */
+	private compilePatternAlt( pat: ASTNode ): Matcher {
+		const altFns = ( pat.patterns as ASTNode[] ).map(
+			( p ) => this.compilePattern( p ),
+		);
+		const perAltVars = ( pat.patterns as ASTNode[] ).map(
+			( p ) => JQCompile.collectPatternVars( p ),
+		);
+		const allVars = [ ...new Set( perAltVars.flat() ) ];
+		const missingPerAlt = perAltVars.map(
+			( altVars ) => allVars.filter( ( v ) => !altVars.includes( v ) ),
+		);
+		const nullFn = this.compileLiteral( { type: 'literal', value: null } as ASTNode );
+		return function* ( val: JQValue, env: JQEnv ): Generator<JQEnv> {
+			for ( let i = 0; i < altFns.length; i++ ) {
+				try {
+					// Take only the first successful match from each alternative.
+					// eslint-disable-next-line no-unreachable-loop
+					for ( const nextEnv of altFns[ i ]( val, env ) ) {
+						let finalEnv = nextEnv;
+						// Bind all the missing variables to `null`
+						for ( const varName of missingPerAlt[ i ] ) {
+							finalEnv = finalEnv.bind( varName, 0, nullFn );
+						}
+						// Yield the first successful match, then bail.
+						yield finalEnv;
+						return;
+					}
+				} catch ( e ) {
+					if ( e instanceof JQError ) {
+						// this alternative failed; try the next one
+					} else {
+						throw e;
+					}
+				}
+			}
+			// all alternatives failed — yield nothing
 		};
 	}
 

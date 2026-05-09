@@ -488,7 +488,7 @@ class JQCompile {
 	}
 
 	/**
-	 * Compile a bind node (expr as $pat | body).
+	 * Compile a bind node: `expr as $pat | body`.
 	 *
 	 * For each output of expr, match it against the pattern and evaluate
 	 * body in the extended environment. Two important points:
@@ -667,8 +667,12 @@ class JQCompile {
 	 * non-matching alternatives are null-filled in the resulting env.
 	 */
 	private function compilePatternAlt( array $pat ): Closure {
-		$altFns = array_map( $this->compilePattern( ... ), $pat['patterns'] );
-		$perAltVars = array_map( self::collectPatternVars( ... ), $pat['patterns'] );
+		$altFns = array_map(
+			$this->compilePattern( ... ), $pat['patterns']
+		);
+		$perAltVars = array_map(
+			self::collectPatternVars( ... ), $pat['patterns']
+		);
 		$allVars = array_unique( array_merge( ...$perAltVars ) );
 		$missingPerAlt = array_map(
 			static fn ( $altVars ) => array_values( array_diff( $allVars, $altVars ) ),

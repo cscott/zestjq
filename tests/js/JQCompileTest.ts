@@ -57,18 +57,23 @@ function upstreamSkipReason( lineno: number ): string | null {
 		case 148: case 152: case 156: case 160: case 164: case 168: case 172:
 		case 243: case 248: case 253: case 257: case 261:
 		case 277: case 283:
+		case 498: case 508: case 512: case 516: case 520: case 524: case 530: case 539: case 543:
 		case 577: case 581: case 585: case 589: case 593: case 597: case 601: case 605:
 		case 609: case 613: case 617: case 621: case 625: case 629: case 633:
-		case 641: case 645: case 649: case 653: case 657: case 661: case 668: case 674:
-		case 681: case 685: case 784: case 789: case 794: case 798: case 803:
-		case 808: case 812: case 816: case 820: case 826: case 860: case 868:
+		case 637: case 641: case 645: case 649: case 653: case 657: case 661: case 668: case 674:
+		case 681: case 685:
+		case 784: case 789: case 794: case 798: case 803: case 808:
+		case 812: case 816: case 820: case 826:
+		case 860: case 868: case 873: case 884:
+		case 929: case 933:
 		case 1322: case 1330: case 1334: case 1338: case 1342: case 1346:
 		case 1350: case 1354: case 1358: case 1362:
 		case 1390: case 1394: case 1399: case 1403: case 1407: case 1411: case 1416:
 		case 1637: case 1701: case 1741:
 		case 1751: case 1755: case 1759: case 1763:
 		case 2042:
-		case 2211: case 2215: case 2219: case 2304:
+		case 2211: case 2215: case 2219:
+		case 2281: case 2293: case 2304: case 2308:
 			return null;
 
 			// All the rest we'll assume are broken because of something we
@@ -239,7 +244,11 @@ function normalizeErrorFn( lineno: number ): ( ( v: JQValue ) => JQValue ) | nul
 // Same for tests/local.test.
 function localSkipReason( lineno: number ): string | null {
 	switch ( lineno ) {
-		default: return 'not implemented yet';
+		case 291: case 298: case 305:
+			return null;
+
+		default:
+			return 'not implemented yet';
 	}
 }
 
