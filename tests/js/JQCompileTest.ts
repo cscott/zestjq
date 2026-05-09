@@ -48,46 +48,337 @@ function upstreamSkipReason( lineno: number ): string | null {
 		case 2558: case 2563: case 2568: case 2593: case 2602:
 			return 'JSON nesting depth limits and path depth limits not implemented';
 
-			// Below this point we list tests which *do* pass the tests, since
-			// we're still in the process of implementation.
-		case 8: case 12: case 16: case 20: case 25: case 31: case 35:
-		case 48: case 54: case 58:
-		case 68: case 72: case 86: case 90: case 94: case 98:
-		case 102: case 114: case 118: case 122:
-		case 148: case 152: case 156: case 160: case 164: case 168: case 172:
-		case 243: case 248: case 253: case 257: case 261:
-		case 277: case 283: case 287: case 291:
-		case 498: case 508: case 512: case 516: case 520: case 524: case 530: case 539: case 543:
-		case 577: case 581: case 585: case 589: case 593: case 597: case 601: case 605:
-		case 609: case 613: case 617: case 621: case 625: case 629: case 633:
-		case 637: case 641: case 645: case 649: case 653: case 657: case 661: case 668: case 674:
-		case 681: case 685: case 693: case 697: case 741: case 754:
-		case 784: case 789: case 794: case 798: case 803: case 808:
-		case 812: case 816: case 820: case 826: case 847: case 851: case 855:
-		case 860: case 868: case 873: case 884:
-		case 929: case 933:
-		case 1110: case 1119: case 1139:
-		case 1147: case 1163: case 1169: case 1197:
-		case 1322: case 1326: case 1330: case 1334: case 1338: case 1342:
-		case 1346: case 1350: case 1354: case 1358: case 1362:
-		case 1390: case 1394: case 1399: case 1403: case 1407: case 1411: case 1416:
-		case 1421: case 1426: case 1430: case 1434: case 1438: case 1442:
-		case 1516: case 1569: case 1629:
-		case 1637: case 1661: case 1665: case 1669: case 1673: case 1685:
-		case 1689: case 1701: case 1733: case 1737: case 1741:
-		case 1751: case 1755: case 1759: case 1763:
-		case 1827: case 1835:
-		case 1843: case 1847: case 1851: case 1855: case 1859:
-		case 1863: case 1889:
-		case 2042: case 2157: case 2196: case 2200: case 2204:
-		case 2211: case 2215: case 2219: case 2224: case 2228:
-		case 2281: case 2293: case 2304: case 2308: case 2403:
-		case 2548:
-			return null;
+			// Below this point we list tests not yet implemented.
+		case 39:
+		case 106:
+		case 179:
+		case 183:
+		case 187:
+		case 191:
+		case 195:
+		case 200:
+		case 205:
+		case 213:
+		case 217:
+		case 221:
+		case 225:
+		case 229:
+		case 237:
+		case 265:
+		case 269:
+		case 273:
+		case 295:
+		case 299:
+		case 303:
+		case 307:
+		case 311:
+		case 315:
+		case 319:
+		case 329:
+		case 333:
+		case 337:
+		case 341:
+		case 345:
+		case 349:
+		case 353:
+		case 357:
+		case 361:
+		case 365:
+		case 369:
+		case 373:
+		case 377:
+		case 381:
+		case 385:
+		case 389:
+		case 393:
+		case 397:
+		case 401:
+		case 405:
+		case 410:
+		case 420:
+		case 425:
+		case 430:
+		case 435:
+		case 440:
+		case 445:
+		case 450:
+		case 455:
+		case 466:
+		case 470:
+		case 474:
+		case 478:
+		case 490:
+		case 502:
+		case 534:
+		case 701:
+		case 705:
+		case 709:
+		case 720:
+		case 725:
+		case 737:
+		case 745:
+		case 750:
+		case 758:
+		case 762:
+		case 766:
+		case 771:
+		case 775:
+		case 830:
+		case 834:
+		case 838:
+		case 878:
+		case 889:
+		case 899:
+		case 903:
+		case 907:
+		case 911:
+		case 915:
+		case 919:
+		case 924:
+		case 938:
+		case 945:
+		case 949:
+		case 953:
+		case 957:
+		case 961:
+		case 968:
+		case 975:
+		case 982:
+		case 989:
+		case 996:
+		case 1003:
+		case 1010:
+		case 1017:
+		case 1024:
+		case 1031:
+		case 1038:
+		case 1045:
+		case 1049:
+		case 1053:
+		case 1057:
+		case 1062:
+		case 1066:
+		case 1070:
+		case 1074:
+		case 1078:
+		case 1082:
+		case 1086:
+		case 1090:
+		case 1094:
+		case 1098:
+		case 1102:
+		case 1115:
+		case 1123:
+		case 1127:
+		case 1131:
+		case 1135:
+		case 1143:
+		case 1153:
+		case 1159:
+		case 1173:
+		case 1177:
+		case 1184:
+		case 1188:
+		case 1192:
+		case 1201:
+		case 1205:
+		case 1209:
+		case 1214:
+		case 1221:
+		case 1225:
+		case 1229:
+		case 1233:
+		case 1241:
+		case 1245:
+		case 1249:
+		case 1253:
+		case 1258:
+		case 1270:
+		case 1274:
+		case 1278:
+		case 1282:
+		case 1286:
+		case 1290:
+		case 1294:
+		case 1298:
+		case 1302:
+		case 1314:
+		case 1318:
+		case 1366:
+		case 1370:
+		case 1374:
+		case 1378:
+		case 1385:
+		case 1448:
+		case 1452:
+		case 1456:
+		case 1460:
+		case 1464:
+		case 1468:
+		case 1473:
+		case 1477:
+		case 1481:
+		case 1485:
+		case 1489:
+		case 1493:
+		case 1499:
+		case 1504:
+		case 1508:
+		case 1512:
+		case 1520:
+		case 1524:
+		case 1528:
+		case 1532:
+		case 1536:
+		case 1540:
+		case 1544:
+		case 1548:
+		case 1553:
+		case 1557:
+		case 1563:
+		case 1575:
+		case 1581:
+		case 1585:
+		case 1589:
+		case 1593:
+		case 1597:
+		case 1601:
+		case 1605:
+		case 1609:
+		case 1613:
+		case 1617:
+		case 1621:
+		case 1625:
+		case 1633:
+		case 1641:
+		case 1645:
+		case 1649:
+		case 1653:
+		case 1657:
+		case 1677:
+		case 1693:
+		case 1697:
+		case 1705:
+		case 1709:
+		case 1713:
+		case 1717:
+		case 1721:
+		case 1725:
+		case 1729:
+		case 1745:
+		case 1767:
+		case 1771:
+		case 1775:
+		case 1779:
+		case 1783:
+		case 1787:
+		case 1791:
+		case 1795:
+		case 1799:
+		case 1803:
+		case 1807:
+		case 1811:
+		case 1815:
+		case 1819:
+		case 1823:
+		case 1839:
+		case 1868:
+		case 1872:
+		case 1876:
+		case 1881:
+		case 1885:
+		case 1895:
+		case 1997:
+		case 2001:
+		case 2005:
+		case 2018:
+		case 2022:
+		case 2029:
+		case 2034:
+		case 2038:
+		case 2046:
+		case 2050:
+		case 2054:
+		case 2058:
+		case 2062:
+		case 2067:
+		case 2071:
+		case 2086:
+		case 2089:
+		case 2093:
+		case 2097:
+		case 2105:
+		case 2116:
+		case 2121:
+		case 2125:
+		case 2130:
+		case 2135:
+		case 2139:
+		case 2143:
+		case 2147:
+		case 2152:
+		case 2161:
+		case 2165:
+		case 2169:
+		case 2190:
+		case 2236:
+		case 2241:
+		case 2250:
+		case 2254:
+		case 2258:
+		case 2262:
+		case 2267:
+		case 2285:
+		case 2289:
+		case 2297:
+		case 2346:
+		case 2350:
+		case 2354:
+		case 2359:
+		case 2363:
+		case 2367:
+		case 2372:
+		case 2377:
+		case 2382:
+		case 2386:
+		case 2390:
+		case 2395:
+		case 2411:
+		case 2416:
+		case 2420:
+		case 2425:
+		case 2430:
+		case 2435:
+		case 2439:
+		case 2443:
+		case 2447:
+		case 2451:
+		case 2455:
+		case 2459:
+		case 2463:
+		case 2467:
+		case 2471:
+		case 2475:
+		case 2479:
+		case 2483:
+		case 2487:
+		case 2494:
+		case 2498:
+		case 2504:
+		case 2509:
+		case 2516:
+		case 2523:
+		case 2533:
+		case 2538:
+		case 2573:
+		case 2577:
+		case 2581:
+		case 2585:
+		case 2589:
+		case 2598:
+			return 'Not implemented yet';
 
-			// All the rest we'll assume are broken because of something we
-			// haven't yet ported.
-		default: return 'Not implemented yet';
+		default: return null;
 	}
 }
 
@@ -253,12 +544,63 @@ function normalizeErrorFn( lineno: number ): ( ( v: JQValue ) => JQValue ) | nul
 // Same for tests/local.test.
 function localSkipReason( lineno: number ): string | null {
 	switch ( lineno ) {
-		case 291: case 298: case 305:
-		case 375: case 380: case 385: case 390: case 395:
-			return null;
-
-		default:
+		case 13:
+		case 27:
+		case 32:
+		case 37:
+		case 42:
+		case 47:
+		case 52:
+		case 57:
+		case 62:
+		case 71:
+		case 76:
+		case 81:
+		case 86:
+		case 91:
+		case 96:
+		case 101:
+		case 106:
+		case 111:
+		case 125:
+		case 130:
+		case 135:
+		case 140:
+		case 145:
+		case 150:
+		case 155:
+		case 160:
+		case 165:
+		case 170:
+		case 179:
+		case 184:
+		case 189:
+		case 194:
+		case 205:
+		case 210:
+		case 215:
+		case 220:
+		case 225:
+		case 230:
+		case 235:
+		case 240:
+		case 249:
+		case 254:
+		case 260:
+		case 271:
+		case 276:
+		case 282:
+		case 316:
+		case 322:
+		case 327:
+		case 332:
+		case 338:
+		case 349:
+		case 360:
+		case 366:
 			return 'not implemented yet';
+
+		default: return null;
 	}
 }
 
