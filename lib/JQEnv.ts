@@ -4,6 +4,10 @@ import { JQ, JQError, IOContext, JQCompile, JQBuiltin, assertNever } from './int
 // runtime.
 import { JQUtils, JQTopLevelEnv } from './internal.js';
 
+// -----------------------------------------------------------------------
+// Types
+// -----------------------------------------------------------------------
+
 // Path-mode pair: [pathEnv, value] yielded by structural ops when in path mode.
 // eslint-disable-next-line no-use-before-define
 export type JQPathValue = [ JQPathEnv, JQValue ];
@@ -11,6 +15,9 @@ export type JQPathValue = [ JQPathEnv, JQValue ];
 // Value type visible inside the evaluation engine (includes path-mode pairs).
 export type JQValueOrPath = JQValue | JQPathValue;
 
+// Throw a JQError when called inside a path-expression context.
+// Add this to compile* methods that cannot produce valid path outputs
+// (literals, arithmetic, object/array constructors, etc.).
 // eslint-disable-next-line no-use-before-define
 export function assertNotPath( value: JQValueOrPath, env: JQEnv ): JQValue {
 	if ( env.isPathMode() ) {

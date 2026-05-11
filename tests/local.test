@@ -366,3 +366,32 @@ null
 [reduce .[] as {("a","b"): $x} (0; . + $x)]
 [{"a":1,"b":2},{"a":10,"b":20}]
 [33]
+
+##################################################
+# Comparisons with nan
+##################################################
+
+# Comparing nan to itself
+[nan<nan,nan<=nan,nan==nan,nan>=nan,nan>nan]
+null
+[true,true,false,false,false]
+
+# Comparing nan on the lhs
+[nan<0,nan<=0,nan==0,nan>=0,nan>0]
+null
+[true,true,false,false,false]
+
+# Comparing nan on the rhs
+[0<nan,0<=nan,0==nan,0>=nan,0>nan]
+null
+[false,false,false,true,true]
+
+# Inequality tests
+[nan!=nan,nan!=0,0!=nan]
+null
+[true,true,true]
+
+# CSV serialization
+[0,true,nan,false]|@csv
+null
+"0,true,,false"

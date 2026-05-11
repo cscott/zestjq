@@ -282,6 +282,10 @@ class JQUtils {
 			return 0;  // null or a specific boolean; same rank means same value
 		}
 		if ( $ta <= 4 ) {
+			if ( is_float( $a ) && is_nan( $a ) ) {
+				// weird behavior with nan.
+				return -1;
+			}
 			return $a <=> $b;  // number or string: natural PHP ordering
 		}
 		// array: lexicographic element comparison then by length
@@ -423,14 +427,20 @@ class JQUtils {
 	public static function divide( mixed $a, mixed $b ): mixed {
 		if ( self::isNumber( $a ) && self::isNumber( $b ) ) {
 			if ( $b == 0 ) {
-				throw new JQError( 'number (' . $a . ') and number (' . $b . ') cannot be divided because the divisor is zero' );
+				throw new JQError(
+					self::typeNameAndValue( $a ) . ' and ' . self::typeNameAndValue( $b ) .
+					' cannot be divided because the divisor is zero'
+				);
 			}
 			return $a / $b;
 		}
 		if ( is_string( $a ) && is_string( $b ) ) {
 			return $b === '' ? mb_str_split( $a ) : explode( $b, $a );
 		}
-		throw new JQError( self::typeNameAndValue( $a ) . ' and ' . self::typeNameAndValue( $b ) . ' cannot be divided' );
+		throw new JQError(
+			self::typeNameAndValue( $a ) . ' and ' . self::typeNameAndValue( $b ) .
+			' cannot be divided'
+		);
 	}
 
 	/**
@@ -450,7 +460,7 @@ class JQUtils {
 
 	/**
 	 * Return a slice of an array or string.
-	 * Null input yields null; other types throw JQError.
+	 * Null input yields null; other types throw JQError (unless opt is true).
 	 */
 	public static function slice( mixed $base, mixed $from, mixed $to, bool $opt ): Generator {
 		if ( $base === null ) {
@@ -491,10 +501,11 @@ class JQUtils {
 	 * Add this to compile* methods that cannot produce valid path outputs
 	 * (literals, arithmetic, object/array constructors, etc.).
 	 */
-	public static function assertNotPath( mixed $val, JQEnv $env ): void {
+	public static function assertNotPath( mixed $val, JQEnv $env ): mixed {
 		if ( $env->isPathMode() ) {
 			throw new JQError( "Invalid path expression with result " . self::jsonEncode( $val ) );
 		}
+		return $val;
 	}
 
 	// -----------------------------------------------------------------------
@@ -600,7 +611,7 @@ class JQUtils {
 		foreach ( $val as $item ) {
 			if ( self::isNumber( $item ) ) {
 				$val = json_encode( $item );
-				$cols[] = $val === false ? '0' : $val;
+				$cols[] = $val === false ? '' : $val;
 			} elseif ( is_string( $item ) ) {
 				$cols[] = '"' . str_replace( '"', '""', $item ) . '"';
 			} elseif ( $item === true ) {
@@ -626,7 +637,7 @@ class JQUtils {
 		foreach ( $val as $item ) {
 			if ( self::isNumber( $item ) ) {
 				$val = json_encode( $item );
-				$cols[] = $val === false ? '0' : $val;
+				$cols[] = $val === false ? '' : $val;
 			} elseif ( is_string( $item ) ) {
 				$cols[] = str_replace(
 					[ '\\', "\t", "\n", "\r" ],
