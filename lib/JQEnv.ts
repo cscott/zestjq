@@ -1,8 +1,8 @@
 import type { JQValue } from './internal.js';
-import { JQ, JQUtils, JQError, IOContext, JQCompile, JQBuiltin, assertNever } from './internal.js';
-// This is a circular dependency, but we don't need to resolve it until
+import { JQ, JQError, IOContext, JQCompile, JQBuiltin, assertNever } from './internal.js';
+// These are circular dependencies, but we don't need to resolve them until
 // runtime.
-import { JQTopLevelEnv } from './internal.js';
+import { JQUtils, JQTopLevelEnv } from './internal.js';
 
 // Path-mode pair: [pathEnv, value] yielded by structural ops when in path mode.
 // eslint-disable-next-line no-use-before-define

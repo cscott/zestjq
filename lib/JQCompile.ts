@@ -37,8 +37,11 @@ export class JQCompile {
 			case 'variable': return this.compileVariable( node );
 			case 'def': return this.compileDef( node );
 			case 'call': return this.compileCall( node );
+			case 'neg': return this.compileNeg( node );
+			case 'comma': return this.compileComma( node );
 			case 'array': return this.compileArray( node );
 			case 'object': return this.compileObject( node );
+			case 'if': return this.compileIf( node );
 			default:
 				assertNever( `unimplemented: ${node.type}` );
 		}
@@ -284,6 +287,53 @@ export class JQCompile {
 	}
 
 	/**
+	 * Compile an if node (if cond then body else alt end).
+	 *
+	 * The condition is evaluated against the input; for each of its outputs,
+	 * the then-branch is evaluated if the output is JQ-truthy (anything except
+	 * null and false), otherwise the else-branch is evaluated. Both branches
+	 * receive the original input, not the condition's output.
+	 *
+	 * elif chains are represented in the AST as a nested if in the else slot.
+	 * An if without an explicit else has {type:'literal',value:null} as its
+	 * else node (the grammar's canonical representation).
+	 *
+	 * @param {ASTNode} node Node with 'cond', 'then', and 'else' keys
+	 * @return {FilterFn}
+	 */
+	private compileIf( node: ASTNode ): FilterFn {
+		const condFn = this.compileNode( node.cond as ASTNode );
+		const thenFn = this.compileNode( node.then as ASTNode );
+		const elseFn = this.compileNode( node.else as ASTNode );
+		return function* ( input: JQValue, env: JQEnv ): Generator<JQValueOrPath> {
+			for ( const condVal of condFn( input, env.leavePathMode() ) ) {
+				if ( JQUtils.toBoolean( condVal as JQValue ) ) {
+					yield* thenFn( input, env );
+				} else {
+					yield* elseFn( input, env );
+				}
+			}
+		};
+	}
+
+	/**
+	 * Compile a comma node (left, right).
+	 * Yields all outputs of the left filter followed by all outputs of the
+	 * right filter, preserving path-mode wrapping in both halves.
+	 *
+	 * @param {ASTNode} node Node with 'left' and 'right' keys
+	 * @return {FilterFn}
+	 */
+	private compileComma( node: ASTNode ): FilterFn {
+		const leftFn = this.compileNode( node.left as ASTNode );
+		const rightFn = this.compileNode( node.right as ASTNode );
+		return function* ( input: JQValue, env: JQEnv ): Generator<JQValueOrPath> {
+			yield* leftFn( input, env );
+			yield* rightFn( input, env );
+		};
+	}
+
+	/**
 	 * Compile an array constructor node ([expr]).
 	 * Collects every output of the inner expression into a single JS array.
 	 * [empty_expr] produces an empty array.
@@ -349,4 +399,22 @@ export class JQCompile {
 		};
 	}
 
+	/**
+	 * Compile a unary negation node (-expr).
+	 * Yields -v for each numeric value yielded by the inner expression;
+	 * throws JQError for non-numeric values.
+	 *
+	 * @param {ASTNode} node Node with 'expr' key
+	 * @return {FilterFn}
+	 */
+	private compileNeg( node: ASTNode ): FilterFn {
+		const exprFn = this.compileNode( node.expr as ASTNode );
+		return function* ( input: JQValue, env: JQEnv ): Generator<JQValueOrPath> {
+			const plainEnv = env.leavePathMode();
+			for ( const v of exprFn( input, plainEnv ) ) {
+				const result = -JQUtils.checkNumber( 'negation', v );
+				yield assertNotPath( result, env );
+			}
+		};
+	}
 }

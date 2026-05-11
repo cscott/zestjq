@@ -1,4 +1,4 @@
-import type { JQValue } from './internal.js';
+import type { JQValue, JQValueOrPath } from './internal.js';
 import { JQError } from './internal.js';
 
 export function jsonDecode( s: string ): JQValue {
@@ -33,8 +33,31 @@ export function typeName( v: JQValue ): string {
 	return 'object';
 }
 
+export function typeNameAndValue( v: JQValueOrPath ): string {
+	const plain = v as JQValue;
+	let encoded: string;
+	if ( typeof plain === 'string' && [ ...plain ].length > 24 ) {
+		const prefix = jsonEncode( [ ...plain ].slice( 0, 24 ).join( '' ) );
+		encoded = prefix.slice( 0, -1 ) + '..."';
+	} else {
+		encoded = jsonEncode( plain );
+	}
+	return `${typeName( plain )} (${encoded})`;
+}
+
 export function isNumber( v: JQValue ): v is number {
 	return typeof v === 'number';
+}
+
+export function checkNumber( who: string, val: JQValueOrPath, allowNaN = true ): number {
+	const v = val as JQValue;
+	if ( typeof v !== 'number' ) {
+		throw new JQError( `${who} requires a number input, got ${typeName( v )}` );
+	}
+	if ( !allowNaN && isNaN( v ) ) {
+		throw new JQError( `${who} requires a number input, got NaN` );
+	}
+	return v;
 }
 
 export function toBoolean( v: JQValue ): boolean {
