@@ -7,7 +7,7 @@ export class JQCompile {
 		const fn = compiler.compileNode( ast );
 		return function* ( input: JQValue ): Generator<JQValue> {
 			for ( const v of fn( input, env ) ) {
-				yield v as JQValue;
+				yield assertNotPath( v, env );
 			}
 		};
 	}
@@ -69,8 +69,7 @@ export class JQCompile {
 	private compileLiteral( node: ASTNode ): FilterFn {
 		const value = node.value as JQValue;
 		return function* ( _input: JQValue, env: JQEnv ): Generator<JQValueOrPath> {
-			assertNotPath( value, env );
-			yield value;
+			yield assertNotPath( value, env );
 		};
 	}
 
@@ -153,8 +152,7 @@ export class JQCompile {
 				throw new JQError( `${key} is not defined` );
 			}
 			for ( const val of fn( input, env ) ) {
-				assertNotPath( val as JQValue, env );
-				yield val;
+				yield assertNotPath( val, env );
 			}
 		};
 	}

@@ -140,8 +140,7 @@ class JQCompile {
 	private function compileLiteral( array $node ): Closure {
 		$value = $node['value'];
 		return static function ( mixed $input, JQEnv $env ) use ( $value ): Generator {
-			JQUtils::assertNotPath( $value, $env );
-			yield $value;
+			yield JQUtils::assertNotPath( $value, $env );
 		};
 	}
 
@@ -228,8 +227,7 @@ class JQCompile {
 				throw new JQError( $key . ' is not defined' );
 			}
 			foreach ( $fn( $input, $env ) as $val ) {
-				JQUtils::assertNotPath( $val, $env );
-				yield $val;
+				yield JQUtils::assertNotPath( $val, $env );
 			}
 		};
 	}
@@ -430,8 +428,7 @@ class JQCompile {
 	private function compileArray( array $node ): Closure {
 		if ( $node['expr'] === null ) {
 			return static function ( mixed $input, JQEnv $env ): Generator {
-				JQUtils::assertNotPath( [], $env );
-				yield [];
+				yield JQUtils::assertNotPath( [], $env );
 			};
 		}
 		$exprFn = $this->compileNode( $node['expr'] );
@@ -441,8 +438,7 @@ class JQCompile {
 			foreach ( $exprFn( $input, $env->leavePathMode() ) as $val ) {
 				$items[] = $val;
 			}
-			JQUtils::assertNotPath( $items, $env );
-			yield $items;
+			yield JQUtils::assertNotPath( $items, $env );
 		};
 	}
 
@@ -486,8 +482,7 @@ class JQCompile {
 			foreach ( $objects as $obj ) {
 				// Convert constructed arrays into objects
 				$result = (object)$obj;
-				JQUtils::assertNotPath( $result, $env );
-				yield $result;
+				yield JQUtils::assertNotPath( $result, $env );
 			}
 		};
 	}
