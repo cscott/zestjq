@@ -44,13 +44,16 @@ function upstreamSkipReason( lineno: number ): string | null {
 		case 2337: case 2341:
 			return 'debug/0 and input/0 not implemented';
 
+			// setpath with a 10000-element path: setAtPath is recursive, so a
+			// path of depth 10000 exhausts PHP's call stack before returning.
+			// setpath(depth>10000) and getpath(depth>10000) correctly throw
+			// "Path too deep" at the JQTopLevelEnv level before recursing.
+		case 2573:
+			return 'setAtPath recursive implementation exhausts PHP call stack at depth 10000';
+
 			// JSON nesting depth limits and path depth limits not implemented
 		case 2558: case 2563: case 2568: case 2593: case 2602:
 			return 'JSON nesting depth limits and path depth limits not implemented';
-
-			// Below this point we list tests not yet implemented.
-		case 2573:
-			return 'Not implemented yet';
 
 		default: return null;
 	}
