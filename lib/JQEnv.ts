@@ -15,17 +15,6 @@ export type JQPathValue = [ JQPathEnv, JQValue ];
 // Value type visible inside the evaluation engine (includes path-mode pairs).
 export type JQValueOrPath = JQValue | JQPathValue;
 
-// Throw a JQError when called inside a path-expression context.
-// Add this to compile* methods that cannot produce valid path outputs
-// (literals, arithmetic, object/array constructors, etc.).
-// eslint-disable-next-line no-use-before-define
-export function assertNotPath( value: JQValueOrPath, env: JQEnv ): JQValue {
-	if ( env.isPathMode() ) {
-		throw new JQError( 'Invalid path expression' );
-	}
-	return value as JQValue;
-}
-
 // Inner filter: input is always a plain JQValue (the pipe unwraps path pairs
 // before each call), but outputs may be JQPathValue pairs when in path mode.
 // eslint-disable-next-line no-use-before-define

@@ -1,5 +1,5 @@
 import type { JQValue, JQValueOrPath } from './internal.js';
-import { JQError, assertNever } from './internal.js';
+import { JQEnv, JQError, assertNever } from './internal.js';
 
 /**
  * Utility functions for dealing with JQ values.
@@ -459,6 +459,16 @@ export function normalizeSliceIdx(
 		i += len;
 	}
 	return Math.min( Math.max( 0, i ), len );
+}
+
+// Throw a JQError when called inside a path-expression context.
+// Add this to compile* methods that cannot produce valid path outputs
+// (literals, arithmetic, object/array constructors, etc.).
+export function assertNotPath( value: JQValueOrPath, env: JQEnv ): JQValue {
+	if ( env.isPathMode() ) {
+		throw new JQError( 'Invalid path expression with result ' + jsonEncode( value as JQValue ) );
+	}
+	return value as JQValue;
 }
 
 // -----------------------------------------------------------------------

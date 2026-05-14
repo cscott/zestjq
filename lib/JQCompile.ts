@@ -1,5 +1,9 @@
 import type { ASTNode, JQFilter, JQValue, FilterFn, FilterFactory, JQValueOrPath } from './internal.js';
-import { JQUtils, JQEnv, JQError, JQBreak, assertNever, assertNotPath } from './internal.js';
+import { JQUtils, JQEnv, JQError, JQBreak, assertNever } from './internal.js';
+
+const {
+	assertNotPath,
+} = JQUtils;
 
 export class JQCompile {
 	public static compile( ast: ASTNode, env: JQEnv ): JQFilter {
